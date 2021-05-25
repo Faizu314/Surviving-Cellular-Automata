@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class EndlessCavern : MonoBehaviour
 {
-    public const int CHUNK_SIZE = 25;
+    public const int CHUNK_SIZE = 27;
     public const int SEED = 0;
 
     [SerializeField] private Transform observer;
@@ -87,7 +87,7 @@ public class EndlessCavern : MonoBehaviour
         private float cellWidth, cellHeight;
         private bool upBoundary, rightBoundary, upRightCell;
 
-        private const int FINAL_STAGE = 2;
+        private const int FINAL_STAGE = 3;
         private int nextStage, goalStage;
         private bool requestedNextStage;
         private bool fullyPrepared;
@@ -134,7 +134,7 @@ public class EndlessCavern : MonoBehaviour
                     return;
                 if (!upBoundary)
                 {
-                    bool[,] upChunk = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX, chunkY + 1));
+                    bool[,] upChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY + 1));
                     if (upChunk != null)
                     {
                         CreateUpperCells(upChunk);
@@ -143,7 +143,7 @@ public class EndlessCavern : MonoBehaviour
                 }
                 if (!rightBoundary)
                 {
-                    bool[,] rightChunk = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX + 1, chunkY));
+                    bool[,] rightChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX + 1, chunkY));
                     if (rightChunk != null)
                     {
                         CreateRightCells(rightChunk);
@@ -152,9 +152,9 @@ public class EndlessCavern : MonoBehaviour
                 }
                 if (!upRightCell && rightBoundary && upBoundary)
                 {
-                    bool[,] upRightChunk = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX + 1, chunkY + 1));
-                    bool[,] rightChunk = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX + 1, chunkY));
-                    bool[,] upChunk = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX, chunkY + 1));
+                    bool[,] upRightChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX + 1, chunkY + 1));
+                    bool[,] rightChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX + 1, chunkY));
+                    bool[,] upChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY + 1));
                     if (upRightChunk != null)
                     {
                         CreateTopRightCell(upRightChunk[0, 0], upChunk[chunkSize - 1, 0], rightChunk[0, chunkSize - 1]);

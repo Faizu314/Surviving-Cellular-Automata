@@ -26,6 +26,7 @@ public class TilesGenerator : MonoBehaviour
         endlessCavern = GameObject.Find("Cavern Generator").GetComponent<EndlessCavern>();
         GenerationSteps.Add(GenerateInitialMaps);
         GenerationSteps.Add(ApplyCellularAutomaton);
+        GenerationSteps.Add(ChunkCorrection);
     }
     public bool[,] ExecuteGenerationStep(int chunkX, int chunkY, int step)
     {
@@ -126,74 +127,56 @@ public class TilesGenerator : MonoBehaviour
 
         return iterativeMainTiles;
     }
-    //private bool[,] ChunkCorrection(int chunkX, int chunkY)
-    //{
-    //    bool[,] chunkMap = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY));
-    //    if (chunkMap != null)
-    //        return chunkMap;
+    private bool[,] ChunkCorrection(int chunkX, int chunkY)
+    {
+        bool[,] chunkMap = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY));
+        if (chunkMap != null)
+            return chunkMap;
 
-    //    //This is to ensure the index of fillers begin with 1 (walls will have index = 0 and id = -1)
-    //    List<int> fillIds = new List<int>();
-    //    fillIds.Add(-1);
+        int chunkSize = EndlessCavern.CHUNK_SIZE;
 
-    //    chunkMap = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX, chunkY));
-    //    int chunkSize = EndlessCavern.CHUNK_SIZE;
-    //    int[,] fillMap = new int[chunkSize, chunkSize];
+        System.Random prngMain = new System.Random(EndlessCavern.SEED);
+        prngMain = new System.Random(prngMain.Next(-100000, 100000) + chunkX);
+        int chunkSeed = prngMain.Next(-100000, 100000) + chunkY;
 
-    //    List<Filler> fillers = new List<Filler>();
-    //    for (int i = 0; i < 3; i++) {
-    //        fillers.AddRange(FloodFillPartition(chunkMap, fillMap, i, fillIds));
-    //    }
+        chunkMap = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX, chunkY));
+        List<int> fillIds = new List<int>();
+        fillIds.Add(-1);
 
-    //    //Merge the borders
-    //    for (int i = 1; i < 3; i++)
-    //    {
-    //        int yStart = chunkSize * (i / 3);
-    //        for (int x = 0; x < chunkSize; x++)
-    //        {
-    //            int index1 = fillMap[x, yStart];
-    //            int index2 = fillMap[x, yStart - 1];
-    //            if (fillIds[index1] != fillIds[index2] && fillIds[index1] != -1 && fillIds[index2] != -1)
-    //            {
-    //                //neighboring fills exist
-    //                Filler fillerA = fillers.Find((filler) => filler.fillerIndex == index1);
-    //                Filler fillerB = fillers.Find((filler) => filler.fillerIndex == index2);
-    //                fillerA.fillCollider.Encapsulate(fillerB.fillCollider);
-    //                fillIds[index2] = fillIds[index1];
-    //                fillers.Remove(fillerB);
-    //            }
-    //        }
-    //    }
+        int[,] fillMap = new int[chunkSize, chunkSize];
+        int[,] blockMap = new int[chunkSize / 3, chunkSize / 3];
 
-    //    int j = 0;
-    //    while (fillers.Count != 1)
-    //    {
-    //        Vector2 pointA = fillers[0].GetPoint();
-    //        Vector2 pointB = pointA;
-    //        float minSqrDistance = float.MaxValue;
-    //        int minFillerIndex = -1;
-    //        foreach (Filler filler in fillers)
-    //        {
-    //            if (filler != fillers[0])
-    //            {
-    //                float sqrDistance = filler.fillCollider.SqrDistance(pointA);
-    //                if (sqrDistance < minSqrDistance)
-    //                {
-    //                    minSqrDistance = sqrDistance;
-    //                    pointB = filler.fillCollider.ClosestPoint(pointA);
-    //                    minFillerIndex = j;
-    //                }
-    //            }
-    //            j++;
-    //        }
-    //        pointA = fillers[0].fillCollider.ClosestPoint(pointB);
-    //        //Apply connecting algorithm to pointA and pointB (send chunkMap and fillMap so it applies the changes as it goes)
-    //        fillers[0].fillCollider.Encapsulate(fillers[minFillerIndex].fillCollider);
-    //        fillers.RemoveAt(j);
-    //    }
+        List<Filler> fillers = new List<Filler>();
+        for (int i = 0; i < 3; i++)
+            fillers.AddRange(FloodFillPartition(chunkMap, fillMap, blockMap, fillIds, i));
 
-    //    return chunkMap;
-    //}
+        for (int i = 1; i < 3; i++)
+        {
+            int yStart = (int)(chunkSize * (i / 3f));
+            for (int x = 0; x < chunkSize; x++)
+            {
+                int index1 = fillMap[x, yStart];
+                int index2 = fillMap[x, yStart - 1];
+                if (fillIds[index1] != fillIds[index2] && fillIds[index1] != -1 && fillIds[index2] != -1)
+                {
+                    //Filler fillerB = fillers.Find((filler) => filler.fillerIndex == index2);
+                    Filler fillerB = fillers.Find((filler) => fillIds[filler.fillerIndex] == fillIds[index2]);
+                    int colorToReplace = fillIds[index2];
+                    int colorToReplaceWith = fillIds[index1];
+                    for (int j = 0; j < fillIds.Count; j++)
+                    {
+                        if (fillIds[j] == colorToReplace)
+                            fillIds[j] = colorToReplaceWith;
+                    }
+                    fillers.Remove(fillerB);
+                }
+            }
+        }
+
+        MapDataSaver.instance.SaveCorrectedTiles(new Vector2(chunkX, chunkY), chunkMap);
+
+        return Connector.ConnectAutomataPaths(fillers, fillIds, blockMap, fillMap, chunkMap, chunkSeed);
+    }
 
     //Step one jobs
     #region
@@ -526,7 +509,10 @@ public class TilesGenerator : MonoBehaviour
         }
     }
     #endregion
-    private List<Filler> FloodFillPartition(in bool[,] chunkMap, int[,] fillMap, int partitionID, List<int> fillIds)
+
+    //Step three jobs
+    #region
+    private List<Filler> FloodFillPartition(in bool[,] chunkMap, int[,] fillMap, int[,] blockMap, List<int> fillIds, int partitionID)
     {
         int chunkSize = EndlessCavern.CHUNK_SIZE;
         int yStart = (int)(chunkSize * (partitionID / 3f));
@@ -545,20 +531,19 @@ public class TilesGenerator : MonoBehaviour
 
                 int index = fillIds.Count;
                 fillIds.Add(index);
+                fillMap[x, y] = index;
                 Filler filler = new Filler(index, yStart, yEnd, x, y);
                 fillers.Add(filler);
 
-                while (!filler.Step(chunkMap, fillMap));
+                while (filler.Step(chunkMap, fillMap, blockMap)) ;
             }
         }
 
         return fillers;
     }
-    private class Filler
+    public class Filler
     {
         public readonly int fillerIndex;
-        public MeshCollider fillCollider;
-        private List<Vector3> fillVertices;
 
         private Queue<Vector2> toExplore;
         private int yStart, yEnd;
@@ -573,8 +558,6 @@ public class TilesGenerator : MonoBehaviour
             this.currX = currX;
             this.currY = currY;
 
-            fillCollider = new MeshCollider();
-            fillVertices = new List<Vector3>();
             toExplore = new Queue<Vector2>();
             toExplore.Enqueue(new Vector2(currX, currY));
         }
@@ -582,13 +565,11 @@ public class TilesGenerator : MonoBehaviour
         {
             return new Vector2(currX, currY);
         }
-        public bool Step(in bool[,] tileMap, int[,] fillMap)
+        public bool Step(in bool[,] tileMap, int[,] fillMap, int[,] blockMap)
         {
             if (toExplore.Count == 0)
             {
-                Mesh mesh = new Mesh();
-                mesh.vertices = fillVertices.ToArray();
-                fillCollider.sharedMesh = mesh;
+                toExplore = null;
                 return false;
             }
 
@@ -596,32 +577,35 @@ public class TilesGenerator : MonoBehaviour
             Vector2 floorPos = toExplore.Dequeue();
             currX = (int)floorPos.x;
             currY = (int)floorPos.y;
-            fillMap[currX, currY] = fillerIndex;
-            EncapsulateTile(currX, currY);
 
-            if (currX + 1 < size && tileMap[currX + 1, currY] && fillMap[currX + 1, currY] != fillerIndex)
+            blockMap[currX / 3, currY / 3] = fillerIndex;
+
+            if (currX + 1 < size && tileMap[currX + 1, currY] && (fillMap[currX + 1, currY] != fillerIndex))
+            {
+                fillMap[currX + 1, currY] = fillerIndex;
                 toExplore.Enqueue(new Vector2(currX + 1, currY));
+            }
 
-            if (currX - 1 >= 0 && tileMap[currX - 1, currY] && fillMap[currX - 1, currY] != fillerIndex)
+            if (currX - 1 >= 0 && tileMap[currX - 1, currY] && (fillMap[currX - 1, currY] != fillerIndex))
+            {
+                fillMap[currX - 1, currY] = fillerIndex;
                 toExplore.Enqueue(new Vector2(currX - 1, currY));
+            }
 
-            if ((currY + 1) < yEnd && tileMap[currX, currY + 1] && fillMap[currX, currY + 1] != fillerIndex)
+            if ((currY + 1) < yEnd && tileMap[currX, currY + 1] && (fillMap[currX, currY + 1] != fillerIndex))
+            {
+                fillMap[currX, currY + 1] = fillerIndex;
                 toExplore.Enqueue(new Vector2(currX, currY + 1));
+            }
 
-            if ((currY - 1) >= yStart && tileMap[currX, currY - 1] && fillMap[currX, currY - 1] != fillerIndex)
+            if ((currY - 1) >= yStart && tileMap[currX, currY - 1] && (fillMap[currX, currY - 1] != fillerIndex))
+            {
+                fillMap[currX, currY - 1] = fillerIndex;
                 toExplore.Enqueue(new Vector2(currX, currY - 1));
-          
+            }
+
             return true;
         }
-        private void EncapsulateTile(int x, int y)
-        {
-            float roundingCorrection = 0.1f;
-            Vector2 cellCentre = new Vector2(x + ProceduralPrefabs.CELL_WIDTH / 2f, y + ProceduralPrefabs.CELL_HEIGHT / 2f);
-            Vector2 cellDimensions = new Vector2(ProceduralPrefabs.CELL_WIDTH - roundingCorrection, ProceduralPrefabs.CELL_HEIGHT - roundingCorrection);
-            fillVertices.Add(cellCentre - cellDimensions / 2f);
-            fillVertices.Add(cellCentre + cellDimensions / 2f);
-            fillVertices.Add(new Vector2(cellCentre.x + cellDimensions.x / 2f, cellCentre.y - cellDimensions.y / 2f));
-            fillVertices.Add(new Vector2(cellCentre.x - cellDimensions.x / 2f, cellCentre.y + cellDimensions.y / 2f));
-        }
     }
+    #endregion
 }

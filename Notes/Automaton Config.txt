@@ -27,3 +27,13 @@ ITERATIONS = 1
 Very few unreachable areas
 shallow paths
 quite convulated
+
+
+P = 0.73
+E = true
+B = 7
+D = 6
+ITERATIONS = 1
+
+convulated shallow paths
+alot of unreachable areas
