@@ -37,3 +37,17 @@ ITERATIONS = 1
 
 convulated shallow paths
 alot of unreachable areas
+
+
+Prefabs Distribution per chunk:
+
+full floor ~ 1160 / 4 ~ 290
+rectangle floor ~ 550 / 4 ~ 138
+cross floor ~ 40 / 4 ~ 10
+triangle floor ~ 300 / 4 ~ 75
+corner floor ~ 690 / 4 ~ 173
+
+triangle wall ~ 690 / 4 ~ 173
+rectangle wall ~ 450 / 4 ~ 113
+diagonal wall ~ 40 / 4 ~ 10
+corner wall ~ 300 / 4 ~ 75

@@ -57,14 +57,15 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\Scripts\Player\PlayerController2D.cs" />
+    <Compile Include="Assets\Scripts\Generation\Connector.cs" />
     <Compile Include="Assets\Scripts\Camera\CameraMovement.cs" />
     <Compile Include="Assets\Scripts\Generation\ProceduralPrefabs.cs" />
     <Compile Include="Assets\Scripts\Generation\TilesGenerator.cs" />
+    <Compile Include="Assets\Scripts\Generation\PoolManager.cs" />
     <Compile Include="Assets\Scripts\Saving\ExplorationSaver.cs" />
     <Compile Include="Assets\Scripts\Saving\MapDataSaver.cs" />
     <Compile Include="Assets\Scripts\Generation\EndlessCavern.cs" />
     <Compile Include="Assets\Scripts\Generation\PreviewAutomaton.cs" />
-    <Compile Include="Assets\Scripts\Generation\Connector.cs" />
   </ItemGroup>
   <ItemGroup>
      <None Include="Assets\Dungeon Crawler 2D Art Pack\Spine Projects\ExportedForUnity\Character\Left\CharacterLeft.atlas.txt" />

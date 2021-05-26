@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Faizu.ChunkGrid;
 
 public class ProceduralPrefabs : MonoBehaviour
 {
@@ -10,12 +11,55 @@ public class ProceduralPrefabs : MonoBehaviour
     public const float CELL_HEIGHT = 1;
     public const float WALL_HEIGHT = 1f;
 
+    private PoolManager[,] poolManagers;
+    public enum PrefabType { fullFloor, rectangleFloor, crossFloor, triangleFloor, cornerFloor, triangleWall, rectangleWall, diagonalWall, cornerWall };
+
     private void Start()
     {
         GenerateDefaultTriangleWall();
         GenerateDefaultRectangleWall();
         GenerateDefaultDiagonalWall();
         GenerateDefaultCornerWall();
+
+        GameObject pool = new GameObject("Prefab Pool");
+        poolManagers = new PoolManager[packages.Count, packages[0].biomePrefabs.Count];
+        for (int i = 0; i < packages.Count; i++)
+        {
+            for (int j = 0; j < packages[0].biomePrefabs.Count; j++)
+            {
+                PrefabType currType = (PrefabType)j;
+                switch (currType)
+                {
+                    case PrefabType.fullFloor:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 1300, pool);
+                        break;
+                    case PrefabType.rectangleFloor:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 600, pool);
+                        break;
+                    case PrefabType.crossFloor:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 100, pool);
+                        break;
+                    case PrefabType.triangleFloor:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 400, pool);
+                        break;
+                    case PrefabType.cornerFloor:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 750, pool);
+                        break;
+                    case PrefabType.triangleWall:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 750, pool);
+                        break;
+                    case PrefabType.rectangleWall:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 500, pool);
+                        break;
+                    case PrefabType.diagonalWall:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 100, pool);
+                        break;
+                    case PrefabType.cornerWall:
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 400, pool);
+                        break;
+                }
+            }
+        }
     }
 
     private void GenerateDefaultTriangleWall()
@@ -101,9 +145,9 @@ public class ProceduralPrefabs : MonoBehaviour
         triangleMesh.uv = uv;
         triangleMesh.RecalculateNormals();
 
-        packages[0].triangleWallPrefab.GetComponent<MeshFilter>().sharedMesh = triangleMesh;
-        packages[0].triangleWallPrefab.GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
-        packages[0].triangleWallPrefab.GetComponent<MeshCollider>().sharedMesh = triangleMesh;
+        packages[0].biomePrefabs[5].GetComponent<MeshFilter>().sharedMesh = triangleMesh;
+        packages[0].biomePrefabs[5].GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
+        packages[0].biomePrefabs[5].GetComponent<MeshCollider>().sharedMesh = triangleMesh;
     }
     private void GenerateDefaultRectangleWall()
     {
@@ -211,9 +255,9 @@ public class ProceduralPrefabs : MonoBehaviour
         rectangleMesh.uv = uv;
         rectangleMesh.RecalculateNormals();
 
-        packages[0].rectangleWallPrefab.GetComponent<MeshFilter>().sharedMesh = rectangleMesh;
-        packages[0].rectangleWallPrefab.GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
-        packages[0].rectangleWallPrefab.GetComponent<MeshCollider>().sharedMesh = rectangleMesh;
+        packages[0].biomePrefabs[6].GetComponent<MeshFilter>().sharedMesh = rectangleMesh;
+        packages[0].biomePrefabs[6].GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
+        packages[0].biomePrefabs[6].GetComponent<MeshCollider>().sharedMesh = rectangleMesh;
     }
     private void GenerateDefaultDiagonalWall()
     {
@@ -383,9 +427,9 @@ public class ProceduralPrefabs : MonoBehaviour
         diagonalMesh.uv = uv;
         diagonalMesh.RecalculateNormals();
 
-        packages[0].diagonalWallPrefab.GetComponent<MeshFilter>().sharedMesh = diagonalMesh;
-        packages[0].diagonalWallPrefab.GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
-        packages[0].diagonalWallPrefab.GetComponent<MeshCollider>().sharedMesh = diagonalMesh;
+        packages[0].biomePrefabs[7].GetComponent<MeshFilter>().sharedMesh = diagonalMesh;
+        packages[0].biomePrefabs[7].GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
+        packages[0].biomePrefabs[7].GetComponent<MeshCollider>().sharedMesh = diagonalMesh;
     }
     private void GenerateDefaultCornerWall()
     {
@@ -529,14 +573,29 @@ public class ProceduralPrefabs : MonoBehaviour
         cornerMesh.uv = uv;
         cornerMesh.RecalculateNormals();
 
-        packages[0].cornerWallPrefab.GetComponent<MeshFilter>().sharedMesh = cornerMesh;
-        packages[0].cornerWallPrefab.GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
-        packages[0].cornerWallPrefab.GetComponent<MeshCollider>().sharedMesh = cornerMesh;
+        packages[0].biomePrefabs[8].GetComponent<MeshFilter>().sharedMesh = cornerMesh;
+        packages[0].biomePrefabs[8].GetComponent<MeshRenderer>().sharedMaterial = packages[0].wallMaterial;
+        packages[0].biomePrefabs[8].GetComponent<MeshCollider>().sharedMesh = cornerMesh;
     }
 
-    public PrefabPackage GetPrefabPackage(int biomeID = 0)
+    public void GetPackageSubscription(int chunkX, int chunkY, int biomeID = 0)
     {
-        return packages[biomeID];
+        for (int i = 0; i < packages[biomeID].biomePrefabs.Count; i++)
+        {
+            poolManagers[biomeID, i].Subscribe(chunkX, chunkY);
+        }
+    }
+    public void UnSubscribe(int chunkX, int chunkY, int biomeID = 0)
+    {
+        for (int i = 0; i < packages[biomeID].biomePrefabs.Count; i++)
+        {
+            poolManagers[biomeID, i].UnSubscribe(chunkX, chunkY);
+        }
+    }
+
+    public GameObject GetPrefab(int chunkX, int chunkY, PrefabType prefabType, int biomeID = 0)
+    {
+        return poolManagers[biomeID, (int)prefabType].GetPrefab(chunkX, chunkY);
     }
 }
 
@@ -545,16 +604,7 @@ public class ProceduralPrefabs : MonoBehaviour
 public class PrefabPackage
 {
     public string biomeName;
-    public GameObject fullFloorPrefab;
-    public GameObject rectangleFloorPrefab;
-    public GameObject crossFloorPrefab;
-    public GameObject triangleFloorPrefab;
-    public GameObject cornerFloorPrefab;
-
-    public GameObject triangleWallPrefab;
-    public GameObject rectangleWallPrefab;
-    public GameObject diagonalWallPrefab;
-    public GameObject cornerWallPrefab;
+    public List<GameObject> biomePrefabs;
 
     public Material wallMaterial;
 }

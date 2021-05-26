@@ -13,6 +13,7 @@ public class EndlessCavern : MonoBehaviour
     public int maxRange;
 
     private Dictionary<Vector2, MapChunk> nearbyChunks = new Dictionary<Vector2, MapChunk>();
+    private Vector3 previousObserverPos;
     private TilesGenerator tilesGenerator;
     private ProceduralPrefabs proceduralPrefabs;
 
@@ -20,17 +21,21 @@ public class EndlessCavern : MonoBehaviour
     {
         tilesGenerator = gameObject.GetComponent<TilesGenerator>();
         proceduralPrefabs = gameObject.GetComponent<ProceduralPrefabs>();
+        previousObserverPos = observer.position + Vector3.one * 4;
     }
 
     private void Update()
     {
+        if (Vector2.SqrMagnitude(previousObserverPos - observer.position) < 2)
+            return;
+        previousObserverPos = observer.position;
         int observerChunkX = ((int)observer.position.x / CHUNK_SIZE) - (observer.position.x < 0 ? 1 : 0);
         int observerChunkY = ((int)observer.position.y / CHUNK_SIZE) - (observer.position.y < 0 ? 1 : 0);
         Vector2 observerChunkPos = new Vector2(observerChunkX, observerChunkY);
 
-        for (int yOffset = -maxRange; yOffset <= maxRange; yOffset++)
+        for (int yOffset = maxRange; yOffset >= -maxRange; yOffset--)
         {
-            for (int xOffset = -maxRange; xOffset <= maxRange; xOffset++)
+            for (int xOffset = maxRange; xOffset >= -maxRange; xOffset--)
             {
                 Vector2 currentChunkPos = new Vector2(observerChunkPos.x + xOffset, observerChunkPos.y + yOffset);
 
@@ -40,11 +45,7 @@ public class EndlessCavern : MonoBehaviour
                 }
                 else
                 {
-                    //send coord to BiomeManager and get biome Type
-                    //currently sending default biome type => 0
-                    PrefabPackage chunkPrefabs = proceduralPrefabs.GetPrefabPackage(0);
-
-                    nearbyChunks.Add(currentChunkPos, new MapChunk(currentChunkPos, tilesGenerator, chunkPrefabs, gameObject));
+                    nearbyChunks.Add(currentChunkPos, new MapChunk(currentChunkPos, tilesGenerator, proceduralPrefabs));
                 }
 
                 float currentPosX = (currentChunkPos.x + 0.5f) * CHUNK_SIZE;
@@ -79,9 +80,7 @@ public class EndlessCavern : MonoBehaviour
         public int[,] debugData;
 
         private TilesGenerator tilesGenerator;
-        private GameObject chunkObject;
-        private GameObject[,] cellObjects;
-        private PrefabPackage prefabs;
+        private ProceduralPrefabs prefabs;
         private int chunkX, chunkY;
         private int chunkSize;
         private float cellWidth, cellHeight;
@@ -89,13 +88,14 @@ public class EndlessCavern : MonoBehaviour
 
         private const int FINAL_STAGE = 3;
         private int nextStage, goalStage;
+        private bool hasSubscribed;
         private bool requestedNextStage;
-        private bool fullyPrepared;
+        private bool tilesPrepared;
 
-        public MapChunk(Vector2 chunkPos, TilesGenerator tilesGenerator, PrefabPackage prefabs, GameObject myObject)
+        public MapChunk(Vector2 chunkPos, TilesGenerator tilesGenerator, ProceduralPrefabs proceduralPrefabs)
         {
-            this.prefabs = prefabs;
             this.tilesGenerator = tilesGenerator;
+            prefabs = proceduralPrefabs;
 
             chunkX = (int)chunkPos.x;
             chunkY = (int)chunkPos.y;
@@ -103,19 +103,17 @@ public class EndlessCavern : MonoBehaviour
             cellWidth = ProceduralPrefabs.CELL_WIDTH;
             cellHeight = ProceduralPrefabs.CELL_HEIGHT;
 
-            chunkObject = new GameObject("Chunk: " + chunkX + ", " + chunkY);
-            chunkObject.transform.parent = myObject.transform;
-            cellObjects = new GameObject[chunkSize, chunkSize];
             debugData = new int[chunkSize, chunkSize];
             upBoundary = rightBoundary = upRightCell = false;
 
             nextStage = 0;
             goalStage = -1;
-            requestedNextStage = fullyPrepared = false;
+            requestedNextStage = tilesPrepared = false;
         }
         public void Update()
         {
-            if (goalStage >= nextStage)
+            //if (goalStage >= nextStage)
+            while(goalStage >= nextStage)
             {
                 //Final stage is to create the cell objects and has nothing to do with tileMap generation
                 if (!requestedNextStage && nextStage != FINAL_STAGE)
@@ -123,12 +121,12 @@ public class EndlessCavern : MonoBehaviour
                 if (nextStage == FINAL_STAGE)
                 {
                     RenderChunk();
-                    fullyPrepared = true;
+                    tilesPrepared = true;
                     nextStage++;
                 }
-                return;
+                //return;
             }
-            if (nextStage > FINAL_STAGE)
+            if (hasSubscribed)
             {
                 if (upBoundary && rightBoundary && upRightCell)
                     return;
@@ -165,18 +163,29 @@ public class EndlessCavern : MonoBehaviour
         }
         public void Deactivate()
         {
-            chunkObject.SetActive(false);
-        }
-        private void RenderChunk()
-        {
-            chunkObject.SetActive(true);
-            CreateCells();
+            if (hasSubscribed)
+            {
+                prefabs.UnSubscribe(chunkX, chunkY);
+                hasSubscribed = false;
+                upBoundary = rightBoundary = upRightCell = false;
+            }
         }
         public void ObtainStage(int stage)
         {
-            if (fullyPrepared)
-                chunkObject.SetActive(true);
+            if (tilesPrepared && stage == FINAL_STAGE)
+                RenderChunk();
             goalStage = stage;
+            Update();
+        }
+
+        private void RenderChunk()
+        {
+            if (!hasSubscribed)
+            {
+                prefabs.GetPackageSubscription(chunkX, chunkY);
+                hasSubscribed = true;
+                CreateCells();
+            }
         }
         private void CreateCells()
         {
@@ -187,219 +196,22 @@ public class EndlessCavern : MonoBehaviour
                     int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (tiles[x + 1, y] ? 1 : 0) * 4 + (tiles[x + 1, y + 1] ? 1 : 0) * 2 + (tiles[x, y + 1] ? 1 : 0);
                     if (binaryToDecimal == 0)
                         continue;
-                    cellObjects[x, y] = new GameObject(x + ", " + y + ": Cell");
-                    GameObject floorObj;
+                    GameObject floorObj = null;
                     Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
                     if (binaryToDecimal == 15)
                     {
-                        floorObj = Instantiate(prefabs.fullFloorPrefab);
+                        floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
                         floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        cellObjects[x, y].transform.parent = chunkObject.transform;
                         continue;
                     }
-                    GameObject wallObj;
+                    GameObject wallObj = null;
                     Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
 
-                    switch (binaryToDecimal)
-                    {
-                        case 1:
-                            wallObj = Instantiate(prefabs.cornerWallPrefab);
-                            wallObj.name = "Corner Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 2:
-                            wallObj = Instantiate(prefabs.cornerWallPrefab);
-                            wallObj.name = "Corner Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 3:
-                            wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                            wallObj.name = "Rectangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 4:
-                            wallObj = Instantiate(prefabs.cornerWallPrefab);
-                            wallObj.name = "Corner Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 5:
-                            wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                            wallObj.name = "Diagonal Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 6:
-                            wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                            wallObj.name = "Rectangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 7:
-                            wallObj = Instantiate(prefabs.triangleWallPrefab);
-                            wallObj.name = "Triangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 8:
-                            wallObj = Instantiate(prefabs.cornerWallPrefab);
-                            wallObj.name = "Corner Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 9:
-                            wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                            wallObj.name = "Rectangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 10:
-                            wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                            wallObj.name = "Diagonal Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 11:
-                            wallObj = Instantiate(prefabs.triangleWallPrefab);
-                            wallObj.name = "Triangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 12:
-                            wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                            wallObj.name = "Rectangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 13:
-                            wallObj = Instantiate(prefabs.triangleWallPrefab);
-                            wallObj.name = "Triangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 14:
-                            wallObj = Instantiate(prefabs.triangleWallPrefab);
-                            wallObj.name = "Triangle Wall";
-                            wallObj.transform.position = basePosition;
-                            wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            wallObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                    }
+                    MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
 
                     binaryToDecimal = 15 - binaryToDecimal;
 
-                    switch (binaryToDecimal)
-                    {
-                        case 1:
-                            floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                            floorObj.name = "Corner Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 2:
-                            floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                            floorObj.name = "Corner Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 3:
-                            floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                            floorObj.name = "Rectangle Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 4:
-                            floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                            floorObj.name = "Corner Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 5:
-                            floorObj = Instantiate(prefabs.crossFloorPrefab);
-                            floorObj.name = "Cross Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 6:
-                            floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                            floorObj.name = "Rectangle Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 7:
-                            floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                            floorObj.name = "Triangle Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 8:
-                            floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                            floorObj.name = "Corner Floor Case 8";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 9:
-                            floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                            floorObj.name = "Rectangle Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 10:
-                            floorObj = Instantiate(prefabs.crossFloorPrefab);
-                            floorObj.name = "Cross Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 11:
-                            floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                            floorObj.name = "Triangle Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 12:
-                            floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                            floorObj.name = "Rectangle Cell";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 13:
-                            floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                            floorObj.name = "Triangle Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                        case 14:
-                            floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                            floorObj.name = "Triangle Floor";
-                            floorObj.transform.position = basePosition;
-                            floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                            floorObj.transform.parent = cellObjects[x, y].transform;
-                            break;
-                    }
-
-                    cellObjects[x, y].transform.parent = chunkObject.transform;
+                    MarchingSquareFloor(binaryToDecimal, floorObj, chunkX, chunkY, ref basePosition, ref midCell);
                 }
             }
         }
@@ -411,219 +223,22 @@ public class EndlessCavern : MonoBehaviour
                 int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (tiles[x + 1, y] ? 1 : 0) * 4 + (upChunk[x + 1, 0] ? 1 : 0) * 2 + (upChunk[x, 0] ? 1 : 0);
                 if (binaryToDecimal == 0)
                     continue;
-                cellObjects[x, y] = new GameObject(x + ", " + y + ": Cell");
-                GameObject floorObj;
+                GameObject floorObj = null;
                 Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
                 if (binaryToDecimal == 15)
                 {
-                    floorObj = Instantiate(prefabs.fullFloorPrefab);
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
                     floorObj.transform.position = basePosition;
-                    floorObj.transform.parent = cellObjects[x, y].transform;
-                    cellObjects[x, y].transform.parent = chunkObject.transform;
                     continue;
                 }
-                GameObject wallObj;
+                GameObject wallObj = null;
                 Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
 
-                switch (binaryToDecimal)
-                {
-                    case 1:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 2:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 3:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 4:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 5:
-                        wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                        wallObj.name = "Diagonal Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 6:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 7:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 8:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 9:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 10:
-                        wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                        wallObj.name = "Diagonal Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 11:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 12:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 13:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 14:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                }
+                MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
 
                 binaryToDecimal = 15 - binaryToDecimal;
 
-                switch (binaryToDecimal)
-                {
-                    case 1:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 2:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 3:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 4:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 5:
-                        floorObj = Instantiate(prefabs.crossFloorPrefab);
-                        floorObj.name = "Cross Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 6:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 7:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 8:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor Case 8";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 9:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 10:
-                        floorObj = Instantiate(prefabs.crossFloorPrefab);
-                        floorObj.name = "Cross Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 11:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 12:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Cell";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 13:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 14:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                }
-
-                cellObjects[x, y].transform.parent = chunkObject.transform;
+                MarchingSquareFloor(binaryToDecimal, floorObj, chunkX, chunkY, ref basePosition, ref midCell);
             }
 
         }
@@ -635,219 +250,22 @@ public class EndlessCavern : MonoBehaviour
                 int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (rightChunk[0, y] ? 1 : 0) * 4 + (rightChunk[0, y + 1] ? 1 : 0) * 2 + (tiles[x, y + 1] ? 1 : 0);
                 if (binaryToDecimal == 0)
                     continue;
-                cellObjects[x, y] = new GameObject(x + ", " + y + ": Cell");
-                GameObject floorObj;
+                GameObject floorObj = null;
                 Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
                 if (binaryToDecimal == 15)
                 {
-                    floorObj = Instantiate(prefabs.fullFloorPrefab);
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
                     floorObj.transform.position = basePosition;
-                    floorObj.transform.parent = cellObjects[x, y].transform;
-                    cellObjects[x, y].transform.parent = chunkObject.transform;
                     continue;
                 }
-                GameObject wallObj;
+                GameObject wallObj = null;
                 Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
 
-                switch (binaryToDecimal)
-                {
-                    case 1:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 2:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 3:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 4:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 5:
-                        wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                        wallObj.name = "Diagonal Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 6:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 7:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 8:
-                        wallObj = Instantiate(prefabs.cornerWallPrefab);
-                        wallObj.name = "Corner Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 9:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 10:
-                        wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                        wallObj.name = "Diagonal Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 11:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 12:
-                        wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                        wallObj.name = "Rectangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 13:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 14:
-                        wallObj = Instantiate(prefabs.triangleWallPrefab);
-                        wallObj.name = "Triangle Wall";
-                        wallObj.transform.position = basePosition;
-                        wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        wallObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                }
+                MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
 
                 binaryToDecimal = 15 - binaryToDecimal;
 
-                switch (binaryToDecimal)
-                {
-                    case 1:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 2:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 3:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 4:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 5:
-                        floorObj = Instantiate(prefabs.crossFloorPrefab);
-                        floorObj.name = "Cross Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 6:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 7:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 8:
-                        floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                        floorObj.name = "Corner Floor Case 8";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 9:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 10:
-                        floorObj = Instantiate(prefabs.crossFloorPrefab);
-                        floorObj.name = "Cross Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 11:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 12:
-                        floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                        floorObj.name = "Rectangle Cell";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 13:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                    case 14:
-                        floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                        floorObj.name = "Triangle Floor";
-                        floorObj.transform.position = basePosition;
-                        floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                        floorObj.transform.parent = cellObjects[x, y].transform;
-                        break;
-                }
-
-                cellObjects[x, y].transform.parent = chunkObject.transform;
+                MarchingSquareFloor(binaryToDecimal, floorObj, chunkX, chunkY, ref basePosition, ref midCell);
             }
         }
         private void CreateTopRightCell(bool cornerTile, bool upTile, bool rightTile)
@@ -858,219 +276,167 @@ public class EndlessCavern : MonoBehaviour
             int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (rightTile ? 1 : 0) * 4 + (cornerTile ? 1 : 0) * 2 + (upTile ? 1 : 0);
             if (binaryToDecimal == 0)
                 return;
-            cellObjects[x, y] = new GameObject(x + ", " + y + ": Cell");
-            GameObject floorObj;
+            GameObject floorObj = null;
             Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
             if (binaryToDecimal == 15)
             {
-                floorObj = Instantiate(prefabs.fullFloorPrefab);
+                floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
                 floorObj.transform.position = basePosition;
-                floorObj.transform.parent = cellObjects[x, y].transform;
-                cellObjects[x, y].transform.parent = chunkObject.transform;
                 return;
             }
-            GameObject wallObj;
+            GameObject wallObj = null;
             Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
 
-            switch (binaryToDecimal)
-            {
-                case 1:
-                    wallObj = Instantiate(prefabs.cornerWallPrefab);
-                    wallObj.name = "Corner Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 2:
-                    wallObj = Instantiate(prefabs.cornerWallPrefab);
-                    wallObj.name = "Corner Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 3:
-                    wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                    wallObj.name = "Rectangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 4:
-                    wallObj = Instantiate(prefabs.cornerWallPrefab);
-                    wallObj.name = "Corner Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 5:
-                    wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                    wallObj.name = "Diagonal Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 6:
-                    wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                    wallObj.name = "Rectangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 7:
-                    wallObj = Instantiate(prefabs.triangleWallPrefab);
-                    wallObj.name = "Triangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 8:
-                    wallObj = Instantiate(prefabs.cornerWallPrefab);
-                    wallObj.name = "Corner Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 9:
-                    wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                    wallObj.name = "Rectangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 10:
-                    wallObj = Instantiate(prefabs.diagonalWallPrefab);
-                    wallObj.name = "Diagonal Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 11:
-                    wallObj = Instantiate(prefabs.triangleWallPrefab);
-                    wallObj.name = "Triangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 12:
-                    wallObj = Instantiate(prefabs.rectangleWallPrefab);
-                    wallObj.name = "Rectangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 13:
-                    wallObj = Instantiate(prefabs.triangleWallPrefab);
-                    wallObj.name = "Triangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-                case 14:
-                    wallObj = Instantiate(prefabs.triangleWallPrefab);
-                    wallObj.name = "Triangle Wall";
-                    wallObj.transform.position = basePosition;
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    wallObj.transform.parent = cellObjects[x, y].transform;
-                    break;
-            }
+            MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
 
             binaryToDecimal = 15 - binaryToDecimal;
 
-            switch (binaryToDecimal)
+            MarchingSquareFloor(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
+        }
+
+        private void MarchingSquareWall(int code, GameObject wallObj, int chunkX, int chunkY, ref Vector3 basePosition, ref Vector3 midCell)
+        {
+            switch (code)
             {
                 case 1:
-                    floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                    floorObj.name = "Corner Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
                     break;
                 case 2:
-                    floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                    floorObj.name = "Corner Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
                     break;
                 case 3:
-                    floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                    floorObj.name = "Rectangle Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
                     break;
                 case 4:
-                    floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                    floorObj.name = "Corner Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
                     break;
                 case 5:
-                    floorObj = Instantiate(prefabs.crossFloorPrefab);
-                    floorObj.name = "Cross Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.diagonalWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
                     break;
                 case 6:
-                    floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                    floorObj.name = "Rectangle Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
                     break;
                 case 7:
-                    floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                    floorObj.name = "Triangle Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
                     break;
                 case 8:
-                    floorObj = Instantiate(prefabs.cornerFloorPrefab);
-                    floorObj.name = "Corner Floor Case 8";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
                     break;
                 case 9:
-                    floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                    floorObj.name = "Rectangle Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
                     break;
                 case 10:
-                    floorObj = Instantiate(prefabs.crossFloorPrefab);
-                    floorObj.name = "Cross Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.diagonalWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
                     break;
                 case 11:
-                    floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                    floorObj.name = "Triangle Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
                     break;
                 case 12:
-                    floorObj = Instantiate(prefabs.rectangleFloorPrefab);
-                    floorObj.name = "Rectangle Cell";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
                     break;
                 case 13:
-                    floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                    floorObj.name = "Triangle Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
                     break;
                 case 14:
-                    floorObj = Instantiate(prefabs.triangleFloorPrefab);
-                    floorObj.name = "Triangle Floor";
-                    floorObj.transform.position = basePosition;
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
-                    floorObj.transform.parent = cellObjects[x, y].transform;
+                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
+                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
                     break;
             }
-
-            cellObjects[x, y].transform.parent = chunkObject.transform;
+        }
+        private void MarchingSquareFloor(int code, GameObject floorObj, int chunkX, int chunkY, ref Vector3 basePosition, ref Vector3 midCell)
+        {
+            switch (code)
+            {
+                case 1:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    break;
+                case 2:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    break;
+                case 3:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    break;
+                case 4:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    break;
+                case 5:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.crossFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    break;
+                case 6:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    break;
+                case 7:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    break;
+                case 8:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    break;
+                case 9:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    break;
+                case 10:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.crossFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    break;
+                case 11:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    break;
+                case 12:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    break;
+                case 13:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    break;
+                case 14:
+                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
+                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    break;
+            }
         }
     }
 
@@ -1081,75 +447,4 @@ public class EndlessCavern : MonoBehaviour
         public int distance;
         public int stage;
     }
-
-    //private void OnDrawGizmos()
-    //{
-    //    bool[,] tiles = null;
-    //    if (loadedChunks.ContainsKey(Vector2.zero))
-    //        tiles = loadedChunks[Vector2.zero].tiles;
-    //    else
-    //        return;
-
-    //    Gizmos.color = Color.black;
-    //    for (int y = 0; y < tiles.GetLength(1) - 1; y++)
-    //    {
-    //        for (int x = 0; x < tiles.GetLength(0) - 1; x++)
-    //        {
-    //            int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (tiles[x + 1, y] ? 1 : 0) * 4 + (tiles[x + 1, y + 1] ? 1 : 0) * 2 + (tiles[x, y + 1] ? 1 : 0);
-    //            Gizmos.color = tiles[x, y] ? Color.white : Color.black;
-    //            Gizmos.DrawSphere(new Vector2(x, y), 0.1f);
-    //            Gizmos.color = Color.red;
-    //            switch(binaryToDecimal)
-    //            {
-    //                case 1:
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y + 1), new Vector2(x, y + 0.5f));
-    //                    break;
-    //                case 2:
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y + 1), new Vector2(x + 1, y + 0.5f));
-    //                    break;
-    //                case 3:
-    //                    Gizmos.DrawLine(new Vector2(x, y + 0.5f), new Vector2(x + 1, y + 0.5f));
-    //                    break;
-    //                case 4:
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y), new Vector2(x + 1, y + 0.5f));
-    //                    break;
-    //                case 5:
-    //                    Gizmos.DrawLine(new Vector2(x, y + 0.5f), new Vector2(x + 0.5f, y + 1));
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y), new Vector2(x + 1, y + 0.5f));
-    //                    break;
-    //                case 6:
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y), new Vector2(x + 0.5f, y + 1));
-    //                    break;
-    //                case 7:
-    //                    Gizmos.DrawLine(new Vector2(x, y + 0.5f), new Vector2(x + 0.5f, y));
-    //                    break;
-    //                case 8:
-    //                    Gizmos.DrawLine(new Vector2(x, y + 0.5f), new Vector2(x + 0.5f, y));
-    //                    break;
-    //                case 9:
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y), new Vector2(x + 0.5f, y + 1));
-    //                    break;
-    //                case 10:
-    //                    Gizmos.DrawLine(new Vector2(x, y + 0.5f), new Vector2(x + 0.5f, y));
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y + 1), new Vector2(x + 1, y + 0.5f));
-    //                    break;
-    //                case 11:
-    //                    Gizmos.DrawLine(new Vector2(x + 1, y + 0.5f), new Vector2(x + 0.5f, y));
-    //                    break;
-    //                case 12:
-    //                    Gizmos.DrawLine(new Vector2(x, y + 0.5f), new Vector2(x + 1, y + 0.5f));
-    //                    break;
-    //                case 13:
-    //                    Gizmos.DrawLine(new Vector2(x + 0.5f, y + 1), new Vector2(x + 1, y + 0.5f));
-    //                    break;
-    //                case 14:
-    //                    Gizmos.DrawLine(new Vector2(x, y + 0.5f), new Vector2(x + 0.5f, y + 1));
-    //                    break;
-    //            }
-    //        }
-    //        Gizmos.color = tiles[tiles.GetLength(0) - 1, y] ? Color.white : Color.black;
-    //        Gizmos.DrawSphere(new Vector2(tiles.GetLength(0) - 1, y), 0.1f);
-    //    }
-
-    //}
 }

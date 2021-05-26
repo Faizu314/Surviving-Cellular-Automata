@@ -210,6 +210,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   packages:
   - biomeName: Default
+    biomePrefabs:
+    - {fileID: 2080059045876746456, guid: b51f82c1005b0b04a8a693ea4df4b164, type: 3}
+    - {fileID: 8476510270569736500, guid: 3323d216cd6477446b50e6afdd2ff872, type: 3}
+    - {fileID: 3989190417094896306, guid: 96bd77c625afffc498f5fec6a5d02da1, type: 3}
+    - {fileID: 7976494495729046520, guid: 898389f943960914f95acf0326085ac5, type: 3}
+    - {fileID: 7032368760275084930, guid: 5308aeb99430974438710e13405963f3, type: 3}
+    - {fileID: 6439233873626352658, guid: cfc6d54a22206e1498ff77c604b20374, type: 3}
+    - {fileID: 4444673927424109041, guid: 382f788d9f4c85b4a85ed90c0b3db3fa, type: 3}
+    - {fileID: 8776623906780795597, guid: 31502127ec090ba48b56ca194840f579, type: 3}
+    - {fileID: 7885751268307116695, guid: 594d1f3c28f0d1d4fa130bb4a1e9607f, type: 3}
     fullFloorPrefab: {fileID: 2080059045876746456, guid: b51f82c1005b0b04a8a693ea4df4b164, type: 3}
     rectangleFloorPrefab: {fileID: 8476510270569736500, guid: 3323d216cd6477446b50e6afdd2ff872, type: 3}
     crossFloorPrefab: {fileID: 3989190417094896306, guid: 96bd77c625afffc498f5fec6a5d02da1, type: 3}
