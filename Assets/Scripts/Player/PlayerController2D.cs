@@ -14,6 +14,13 @@ public class PlayerController2D : MonoBehaviour
     private int isMovingHorizontally, isMovingVertically;
     private bool hasMoved;
 
+    private void Awake()
+    {
+        if (SystemInfo.deviceType != DeviceType.Desktop)
+        {
+            enabled = false;
+        }
+    }
     void Start()
     {
         direction = 0;

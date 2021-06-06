@@ -119,6 +119,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   animator: {fileID: 95041813273560246}
   rb: {fileID: 4346241148375579454}
+  rotationMode: 0
   speed: 3.21
 --- !u!136 &2162697638667923557
 CapsuleCollider:

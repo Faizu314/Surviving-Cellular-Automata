@@ -1,0 +1,17 @@
+Constants in Tiles Generator {
+	Read them from a text file im sick of recompiling
+}
+
+A* Optimizations {
+	Add a Weight to overestimate Heuristic: Cost = g(x) + h(x) * W
+	Maybe use octile distance: max(dx, dy) + (sqrt(2) - 1) * min(dx, dy)
+}
+
+Cellular Automata Step {
+	Iterations are not being computed correctly on currently: correctly swap iterative and initialTiles
+}
+
+Tiles Pooling {
+	Further manage tiles within chunks to only load local tiles
+}
+	

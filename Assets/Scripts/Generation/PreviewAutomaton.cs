@@ -4,12 +4,15 @@ using System.Collections.Generic;
 
 public class PreviewAutomaton : MonoBehaviour
 {
+    public ComputeShader shader;
     public GameObject floorPrefab;
     public GameObject wallPrefab;
     [Range(0, 5)] public int chunkX;
     [Range(0, 5)] public int chunkY;
     public enum Test { correction, noCorrection };
+    public enum Mode { CPU, GPU };
     public Test test;
+    public Mode mode;
     public int chunkSize;
     public float cellWidth, cellHeight;
     public bool autoUpdate;
@@ -52,7 +55,10 @@ public class PreviewAutomaton : MonoBehaviour
                 chunkObject = new GameObject("Chunk: " + currentChunkX + ", " + currentChunkY);
                 chunkObject.transform.parent = transform;
 
-                tiles = SimulateTilesGeneration(currentChunkX, currentChunkY);
+                if (mode == Mode.CPU)
+                    tiles = SimulateTilesGeneration(currentChunkX, currentChunkY);
+                else if (mode == Mode.GPU)
+                    tiles = GenerateTilesOnGPU(currentChunkX, currentChunkY);
 
                 for (int y = 0; y < chunkSize; y++)
                 {
@@ -85,8 +91,12 @@ public class PreviewAutomaton : MonoBehaviour
             }
         }
 
+        if (ITERATIONS == 0)
+            return initialTiles;
+
         bool[,] iterativeTiles = new bool[chunkSize, chunkSize];
 
+        bool[,] temp;
         for (int i = 0; i < ITERATIONS; i++)
         {
             for (int y = 0; y < chunkSize; y++)
@@ -116,11 +126,78 @@ public class PreviewAutomaton : MonoBehaviour
                     }
                 }
             }
+            temp = initialTiles;
             initialTiles = iterativeTiles;
+            iterativeTiles = temp;
         }
+
         if (test == Test.correction)
-            iterativeTiles = ChunkCorrection(iterativeTiles, chunkSeed);
-        return iterativeTiles;
+            initialTiles = ChunkCorrection(initialTiles, chunkSeed);
+        return initialTiles;
+    }
+
+    public bool[,] GenerateTilesOnGPU(int currentChunkX, int currentChunkY)
+    {
+        System.Random prng = new System.Random(seed);
+        prng = new System.Random(prng.Next(-100000, 100000) + currentChunkX);
+        int chunkSeed = prng.Next(-100000, 100000) + currentChunkY;
+        prng = new System.Random(chunkSeed);
+
+        float[,] initialTiles = new float[chunkSize, chunkSize];
+
+        for (int y = 0; y < chunkSize; y++)
+        {
+            for (int x = 0; x < chunkSize; x++)
+            {
+                initialTiles[x, y] = (prng.Next(0, 100000) / 100000f) < P ? 1 : 0;
+            }
+        }
+
+        ComputeBuffer prev = new ComputeBuffer(chunkSize * chunkSize, sizeof(float), ComputeBufferType.Default);
+        ComputeBuffer curr = new ComputeBuffer(chunkSize * chunkSize, sizeof(float), ComputeBufferType.Default);
+
+        shader.SetInt("E", E ? 1 : 0);
+        shader.SetInt("B", B);
+        shader.SetInt("D", D);
+        shader.SetInt("chunkSize", chunkSize);
+
+        int kernelHandle = shader.FindKernel("CSMain");
+        
+        prev.SetData(initialTiles);
+        for (int i = 0; i < ITERATIONS; i++)
+        {
+            if (i % 2 == 0)
+            {
+                shader.SetBuffer(kernelHandle, "initialTiles", prev);
+                shader.SetBuffer(kernelHandle, "iterativeTiles", curr);
+            }
+            else
+            {
+                shader.SetBuffer(kernelHandle, "initialTiles", curr);
+                shader.SetBuffer(kernelHandle, "iterativeTiles", prev);
+            }
+            shader.Dispatch(kernelHandle, 1, 1, 1);    
+        }
+        if (ITERATIONS % 2 == 0)
+        {
+            prev.GetData(initialTiles);
+        }
+        else
+        {
+            curr.GetData(initialTiles);
+        }
+        curr.Dispose();
+        prev.Dispose();
+
+        bool[,] answer = new bool[chunkSize, chunkSize];
+        for (int y = 0; y < chunkSize; y++)
+        {
+            for (int x = 0; x < chunkSize; x++)
+            {
+                answer[x, y] = initialTiles[x, y] == 1f;
+            }
+        }
+        return answer;
     }
 
     private bool[,] ChunkCorrection(bool[,] chunkMap, int chunkSeed)
@@ -468,8 +545,7 @@ public class PreviewAutomaton : MonoBehaviour
 
             //Break walls
             float dirAngle = Mathf.Atan2(currToBase.y, currToBase.x);
-            float zigzagChance = Mathf.Abs(Mathf.Cos(2 * dirAngle * Mathf.Rad2Deg)) * 0;
-            Debug.Log(zigzagChance);
+            float zigzagChance = Mathf.Abs(Mathf.Cos(2 * dirAngle * Mathf.Rad2Deg));
 
             float value = prng.Next(0, 100000) / 100000f;
             float zzValue = prng.Next(0, 100000) / 100000f;

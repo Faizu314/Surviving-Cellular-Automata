@@ -1,0 +1,53 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+#define I(x, y) (x + y * chunkSize)
+
+int E;
+int B;
+int D;
+int chunkSize;
+
+StructuredBuffer<float> initialTiles;
+RWStructuredBuffer<float> iterativeTiles;
+
+[numthreads(27, 27, 1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    if (int(id.x) >= chunkSize || int(id.y) >= chunkSize)
+        return;
+    int x = id.x;
+    int y = id.y;
+    int t = 0;
+
+    int l = 0, uL = 0, u = 0, uR = 0, r = 0, dR = 0, d = 0, dL = 0;
+    l += x == 0 ? E : initialTiles[x - 1 + (y * chunkSize)];
+    uL += (x == 0 || (y == chunkSize - 1)) ? E : initialTiles[x - 1 + ((y + 1) * chunkSize)];
+    u += (y == chunkSize - 1) ? E : initialTiles[x + ((y + 1) * chunkSize)];
+    uR += ((x == chunkSize - 1) || (y == chunkSize - 1)) ? E : initialTiles[x + 1 + ((y + 1) * chunkSize)];
+    r += (x == chunkSize - 1) ? E : initialTiles[x + 1 + (y * chunkSize)];
+    dR += ((x == chunkSize - 1) || y == 0) ? E : initialTiles[x + 1 + ((y - 1) * chunkSize)];
+    d += y == 0 ? E : initialTiles[x + ((y - 1) * chunkSize)];
+    dL += (y == 0 || x == 0) ? E : initialTiles[x - 1 + ((y - 1) * chunkSize)];
+
+    t += l + uL + u + uR + r + dR + d + dL;
+
+    if (initialTiles[x + y * chunkSize] == 1)
+    {
+        iterativeTiles[x + y * chunkSize] = (!(t < D)) ? 1 : 0;
+    }
+    else
+    {
+        iterativeTiles[x + y * chunkSize] = t > B ? 1 : 0;
+    }
+}
+
+
+
+//l += x == 0 ? E : initialTiles[id.xy + uint2(-1, 0)].v;
+//uL += x == 0 || (y == chunkSize - 1) ? E : initialTiles[id.xy + uint2(-1, 1)].v;
+//u += (y == chunkSize - 1) ? E : initialTiles[id.xy + uint2(0, 1)].v;
+//uR += (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialTiles[id.xy + uint2(1, 1)].v;
+//r += (x == chunkSize - 1) ? E : initialTiles[id.xy + uint2(1, 0)].v;
+//dR += (x == chunkSize - 1) || y == 0 ? E : initialTiles[id.xy + uint2(1, -1)].v;
+//d += y == 0 ? E : initialTiles[id.xy + uint2(0, -1)].v;
+//dL += y == 0 || x == 0 ? E : initialTiles[id.xy + uint2(-1, -1)].v;
