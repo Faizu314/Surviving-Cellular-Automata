@@ -1,3 +1,23 @@
+GitBash {
+	git add -A
+	git commit -m "/message/"
+	git push origin main
+}
+
 Maybe there should be multiple types of MapChunks
 Some may take less than O(N*N) operations to render like the rooms chunk. But exploration saver will have to account for this
 and endless cavern will have to know in advance which chunk it is adding to the list.
+
+Future Plans:
+
+Biomes {
+	Biomes using different CA rules and different algorithms
+	Blend between different Biomes
+	Use entirely different algorithms to generate special chunks
+}
+
+Threading {
+	Queues of thread requests with priority ordering in each queue
+	A tick system where each background activity will be dispatched at its turn and has its own queue
+	Control the concurrent threads dispatched at a time
+}

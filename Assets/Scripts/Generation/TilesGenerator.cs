@@ -1,32 +1,43 @@
-using System.Collections;
+using System.IO;
 using System.Collections.Generic;
 using System;
 using UnityEngine;
 
 public class TilesGenerator : MonoBehaviour
 {
-    private EndlessCavern endlessCavern;
     //Probability of a True cell in initialization.
-    private const float P = 0.57f;
+    private float P;
     //Whether the boundary cells are considered true or false
-    private const bool E = true;
+    private bool E;
     //Birth Rate
-    private const int B = 5;
+    private int B;
     //Death Rate
-    private const int D = 2;
-    private const int ITERATIONS = 2;
+    private int D;
+    private int ITERATIONS;
 
     public List<Func<int, int, bool[,]>> GenerationSteps = new List<Func<int, int, bool[,]>>();
 
-    //will have a queue of threads => this will give us control over how many threads can be dispatched at a time
-    //and it can allow us to dispatch certain threads before others
-
     private void Start()
     {
-        endlessCavern = GameObject.Find("Cavern Generator").GetComponent<EndlessCavern>();
         GenerationSteps.Add(GenerateInitialMaps);
         GenerationSteps.Add(ApplyCellularAutomaton);
         GenerationSteps.Add(ChunkCorrection);
+
+        using (StreamReader reader = new StreamReader("Assets/Preferences/CA_Config.txt"))
+        {
+            string line;
+            line = reader.ReadLine();
+            P = float.Parse(line); 
+            line = reader.ReadLine();
+            E = bool.Parse(line);
+            line = reader.ReadLine();
+            B = int.Parse(line);
+            line = reader.ReadLine();
+            D = int.Parse(line);
+            line = reader.ReadLine();
+            ITERATIONS = int.Parse(line);
+            reader.Close();
+        }
     }
     public bool[,] ExecuteGenerationStep(int chunkX, int chunkY, int step)
     {
@@ -107,6 +118,7 @@ public class TilesGenerator : MonoBehaviour
         bool[,] iterativeDownTiles = new bool[chunkSize, chunkSize];
         bool[,] iterativeLeftTiles = new bool[chunkSize, chunkSize];
         bool[,] iterativeRightTiles = new bool[chunkSize, chunkSize];
+        bool[,] temp;
 
         for (int i = 0; i < ITERATIONS; i++)
         {
@@ -116,16 +128,31 @@ public class TilesGenerator : MonoBehaviour
             RightCellularAutomata(iterativeRightTiles, initialRightTiles, initialUpTiles, initialMainTiles, initialDownTiles);
             DownCellularAutomata(iterativeDownTiles, initialDownTiles, initialLeftTiles, initialMainTiles, initialRightTiles);
 
+            temp = initialUpTiles;
             initialUpTiles = iterativeUpTiles;
+            iterativeUpTiles = temp;
+
+            temp = initialLeftTiles;
             initialLeftTiles = iterativeLeftTiles;
+            iterativeLeftTiles = temp;
+
+            temp = initialMainTiles;
             initialMainTiles = iterativeMainTiles;
+            iterativeMainTiles = temp;
+
+            temp = initialRightTiles;
             initialRightTiles = iterativeRightTiles;
+            iterativeRightTiles = temp;
+
+            temp = initialDownTiles;
             initialDownTiles = iterativeDownTiles;
+            iterativeDownTiles = temp;
         }
+        //iterativeMainTiles = initialMainTiles;
 
-        MapDataSaver.instance.SaveAutomataTiles(new Vector2(chunkX, chunkY), iterativeMainTiles);
+        MapDataSaver.instance.SaveAutomataTiles(new Vector2(chunkX, chunkY), initialMainTiles);
 
-        return iterativeMainTiles;
+        return initialMainTiles;
     }
     private bool[,] ChunkCorrection(int chunkX, int chunkY)
     {
@@ -159,7 +186,6 @@ public class TilesGenerator : MonoBehaviour
                 int index2 = fillMap[x, yStart - 1];
                 if (fillIds[index1] != fillIds[index2] && fillIds[index1] != -1 && fillIds[index2] != -1)
                 {
-                    //Filler fillerB = fillers.Find((filler) => filler.fillerIndex == index2);
                     Filler fillerB = fillers.Find((filler) => fillIds[filler.fillerIndex] == fillIds[index2]);
                     int colorToReplace = fillIds[index2];
                     int colorToReplaceWith = fillIds[index1];
@@ -173,9 +199,11 @@ public class TilesGenerator : MonoBehaviour
             }
         }
 
+        chunkMap = Connector.ConnectAutomataPaths(fillers, fillIds, blockMap, fillMap, chunkMap, chunkSeed);
+
         MapDataSaver.instance.SaveCorrectedTiles(new Vector2(chunkX, chunkY), chunkMap);
 
-        return Connector.ConnectAutomataPaths(fillers, fillIds, blockMap, fillMap, chunkMap, chunkSeed);
+        return chunkMap;
     }
 
     //Step one jobs

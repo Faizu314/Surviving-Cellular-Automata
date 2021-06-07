@@ -87,6 +87,8 @@ public class Connector
 
     public static bool[,] ConnectAutomataPaths(List<TilesGenerator.Filler> fillers, List<int> fillIds, int[,] blockMap, int[,] fillMap, bool[,] chunkMap, int chunkSeed)
     {
+        if (fillers.Count < 2)
+            return chunkMap;
         TilesGenerator.Filler baseFiller = fillers[0];
 
         Vector2 baseBlockPos = new Vector2((int)baseFiller.GetPoint().x / 3, (int)baseFiller.GetPoint().y / 3);
@@ -102,11 +104,12 @@ public class Connector
             newStartPoint = AStar(fillIds[fillers[1].fillerIndex], fillIds, blockMap, startPoint, newBasePoint);
             toBeMerged = RandomDirectedWalk(baseFiller.fillerIndex, fillers[1].fillerIndex, ref newBasePoint, ref newStartPoint, fillIdsArr, chunkMap, fillMap, chunkSeed);
 
-            for (int i = 0; i < toBeMerged.Count; i++)
+            int count = toBeMerged.Count;
+            for (int i = 0; i < count; i++)
             {
                 int mergingId = toBeMerged[0];
                 fillIds.ConvertAll((id) => id = (id == mergingId ? baseFillerId : id));
-                fillers.Remove(fillers.Find((filler) => fillIds[filler.fillerIndex] == mergingId));
+                fillers.Remove(fillers.Find((filler) => fillIds[filler.fillerIndex] == mergingId && filler != baseFiller));
                 toBeMerged.RemoveAt(0);
             }
         }

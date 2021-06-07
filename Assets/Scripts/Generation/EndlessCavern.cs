@@ -1,13 +1,16 @@
-using System.Collections;
+using System.IO;
 using System.Collections.Generic;
 using UnityEngine;
 
 public class EndlessCavern : MonoBehaviour
 {
-    public const int CHUNK_SIZE = 27;
-    public const int SEED = 0;
+    public static int CHUNK_SIZE;
+    public static int SEED;
 
     [SerializeField] private Transform observer;
+
+    public bool debug;
+    public Vector2 debugChunkPos;
 
     public List<ProgressThreshold> progressThresholds;
     public int maxRange;
@@ -22,6 +25,16 @@ public class EndlessCavern : MonoBehaviour
         tilesGenerator = gameObject.GetComponent<TilesGenerator>();
         proceduralPrefabs = gameObject.GetComponent<ProceduralPrefabs>();
         previousObserverPos = observer.position + Vector3.one * 4;
+
+        using (StreamReader reader = new StreamReader("Assets/Preferences/Cavern_Config.txt"))
+        {
+            string line;
+            line = reader.ReadLine();
+            SEED = int.Parse(line);            
+            line = reader.ReadLine();
+            CHUNK_SIZE = int.Parse(line);
+            reader.Close();
+        }
     }
 
     private void Update()
@@ -29,45 +42,45 @@ public class EndlessCavern : MonoBehaviour
         if (Vector2.SqrMagnitude(previousObserverPos - observer.position) < 2)
             return;
         previousObserverPos = observer.position;
-        int observerChunkX = ((int)observer.position.x / CHUNK_SIZE) - (observer.position.x < 0 ? 1 : 0);
-        int observerChunkY = ((int)observer.position.y / CHUNK_SIZE) - (observer.position.y < 0 ? 1 : 0);
-        Vector2 observerChunkPos = new Vector2(observerChunkX, observerChunkY);
+        int observerGridX = ((int)observer.position.x / CHUNK_SIZE) - (observer.position.x < 0 ? 1 : 0);
+        int observerGridY = ((int)observer.position.y / CHUNK_SIZE) - (observer.position.y < 0 ? 1 : 0);
+        Vector2 observerGridPos = new Vector2(observerGridX, observerGridY);
 
         for (int yOffset = maxRange; yOffset >= -maxRange; yOffset--)
         {
             for (int xOffset = maxRange; xOffset >= -maxRange; xOffset--)
             {
-                Vector2 currentChunkPos = new Vector2(observerChunkPos.x + xOffset, observerChunkPos.y + yOffset);
+                Vector2 currentChunkGridPos = new Vector2(observerGridPos.x + xOffset, observerGridPos.y + yOffset);
 
-                if (nearbyChunks.ContainsKey(currentChunkPos))
-                {
-                    nearbyChunks[currentChunkPos].Update();
-                }
-                else
-                {
-                    nearbyChunks.Add(currentChunkPos, new MapChunk(currentChunkPos, tilesGenerator, proceduralPrefabs));
-                }
+                float currentChunkPosX = (currentChunkGridPos.x + 0.5f) * CHUNK_SIZE;
+                float currentChunkPosY = (currentChunkGridPos.y + 0.5f) * CHUNK_SIZE;
+                Vector3 currentChunkPos = new Vector3(currentChunkPosX, currentChunkPosY);
 
-                float currentPosX = (currentChunkPos.x + 0.5f) * CHUNK_SIZE;
-                float currentPosY = (currentChunkPos.y + 0.5f) * CHUNK_SIZE;
-                Vector3 currentPos = new Vector3(currentPosX, currentPosY);
-
-                Bounds currentChunkPerimeter = new Bounds(currentPos, Vector2.one * CHUNK_SIZE);
+                Bounds currentChunkPerimeter = new Bounds(currentChunkPos, Vector2.one * CHUNK_SIZE);
                 float currentChunkMinSqrDistance = currentChunkPerimeter.SqrDistance(observer.position);
 
-                bool isNearby = false;
+                if (!nearbyChunks.ContainsKey(currentChunkGridPos))
+                {
+                    nearbyChunks.Add(currentChunkGridPos, new MapChunk(currentChunkGridPos, tilesGenerator, proceduralPrefabs));
+                }
+                nearbyChunks[currentChunkGridPos].Update();
+                bool inRenderRange = false;
                 for (int i = progressThresholds.Count - 1; i >= 0; i--)
                 {
                     if (currentChunkMinSqrDistance < Mathf.Pow(progressThresholds[i].distance, 2))
                     {
-                        nearbyChunks[currentChunkPos].ObtainStage(progressThresholds[i].stage);
-                        isNearby = true;
+                        nearbyChunks[currentChunkGridPos].ObtainStage(progressThresholds[i].stage);
+                        if (i == 0)
+                        {
+                            //tell the chunkMap to update tiles
+                        }
+                        inRenderRange = true;
                         break;
                     }
                 }
-                if (!isNearby)
+                if (!inRenderRange)
                 {
-                    nearbyChunks[currentChunkPos].Deactivate();
+                    nearbyChunks[currentChunkGridPos].Deactivate();
                 }
             }
         }
@@ -75,9 +88,9 @@ public class EndlessCavern : MonoBehaviour
 
     private class MapChunk
     {
+        //Objects in a radius of 7 units should be visible
         public bool[,] tiles;
         //later attributes go here as bool[,] arrays
-        public int[,] debugData;
 
         private TilesGenerator tilesGenerator;
         private ProceduralPrefabs prefabs;
@@ -90,7 +103,7 @@ public class EndlessCavern : MonoBehaviour
         private int nextStage, goalStage;
         private bool hasSubscribed;
         private bool requestedNextStage;
-        private bool tilesPrepared;
+        public bool tilesPrepared;
 
         public MapChunk(Vector2 chunkPos, TilesGenerator tilesGenerator, ProceduralPrefabs proceduralPrefabs)
         {
@@ -103,7 +116,6 @@ public class EndlessCavern : MonoBehaviour
             cellWidth = ProceduralPrefabs.CELL_WIDTH;
             cellHeight = ProceduralPrefabs.CELL_HEIGHT;
 
-            debugData = new int[chunkSize, chunkSize];
             upBoundary = rightBoundary = upRightCell = false;
 
             nextStage = 0;
@@ -112,10 +124,8 @@ public class EndlessCavern : MonoBehaviour
         }
         public void Update()
         {
-            //if (goalStage >= nextStage)
             while(goalStage >= nextStage)
             {
-                //Final stage is to create the cell objects and has nothing to do with tileMap generation
                 if (!requestedNextStage && nextStage != FINAL_STAGE)
                     tiles = tilesGenerator.ExecuteGenerationStep(chunkX, chunkY, nextStage++);
                 if (nextStage == FINAL_STAGE)
@@ -124,7 +134,6 @@ public class EndlessCavern : MonoBehaviour
                     tilesPrepared = true;
                     nextStage++;
                 }
-                //return;
             }
             if (hasSubscribed)
             {
@@ -446,5 +455,28 @@ public class EndlessCavern : MonoBehaviour
         public string name;
         public int distance;
         public int stage;
+    }
+
+    public void OnDrawGizmos()
+    {
+        if (!debug)
+            return;
+        if (!nearbyChunks.ContainsKey(debugChunkPos))
+            return;
+        MapChunk debugChunk = nearbyChunks[debugChunkPos];
+        if (!debugChunk.tilesPrepared)
+            return;
+        Gizmos.color = Color.yellow;
+        for (int y = 0; y < CHUNK_SIZE; y++)
+        {
+            for (int x = 0; x < CHUNK_SIZE; x++)
+            {
+                Vector3 centre = new Vector3(debugChunkPos.x * CHUNK_SIZE, debugChunkPos.y * CHUNK_SIZE, 0);
+                centre.x += ProceduralPrefabs.CELL_WIDTH * x;
+                centre.y += ProceduralPrefabs.CELL_HEIGHT * y;
+                if (debugChunk.tiles[x, y])
+                    Gizmos.DrawCube(centre, Vector2.one);
+            }
+        }
     }
 }

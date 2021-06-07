@@ -105,6 +105,7 @@ namespace Faizu
                 {
                     Debug.Log("Pool Manager ran out of " + subject.name + " prefabs");
                     subscriberObject = GameObject.Instantiate(subject);
+                    subscriberObject.transform.parent = parent.transform;
                     lastIndices[subscriberId] = lastIndices[subscriberId] + 1;
                     pools[subscriberId][lastIndices[subscriberId]] = subscriberObject;
                 }

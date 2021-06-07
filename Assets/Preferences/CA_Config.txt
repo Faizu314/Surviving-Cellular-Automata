@@ -1,0 +1,64 @@
+﻿0.5
+true
+5
+3
+1
+
+
+temp:
+fixed a bug in pool manager
+fixed a bug in tiles Generator
+tiles generator and endless cavern can now change templates without rebuilding
+todo:
+continuous automata
+pooling space optimization
+
+####################### Template ####################
+
+P
+E
+B
+D
+ITERATIONS
+
+######################### Notes #####################
+
+0.4
+true
+4
+3
+2
+
+alot of unreachable areas
+wide paths
+very few short paths
+not very convulated
+
+0.55
+true
+4
+2
+2
+
+moderate unreachable areas
+medium width paths with trenches
+
+0.5
+true
+5
+3
+1
+
+Very few unreachable areas
+shallow paths
+quite convulated
+
+
+0.73
+true
+7
+6
+1
+
+convulated shallow paths
+alot of unreachable areas
