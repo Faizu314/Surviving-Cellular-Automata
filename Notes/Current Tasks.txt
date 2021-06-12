@@ -1,5 +1,5 @@
 Tiles Pooling {
-	Further manage tiles within chunks to only load local tiles
+	currently still pooling around 1k gameObjects... :/
 }
 
 Continuous Tile Values {

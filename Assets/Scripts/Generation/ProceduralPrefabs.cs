@@ -21,8 +21,10 @@ public class ProceduralPrefabs : MonoBehaviour
         GenerateDefaultDiagonalWall();
         GenerateDefaultCornerWall();
 
-        GameObject pool = new GameObject("Prefab Pool");
+        GameObject poolObject = new GameObject("Prefab Pool");
         poolManagers = new PoolManager[packages.Count, packages[0].biomePrefabs.Count];
+        int windowWidth = EndlessCavern.RENDER_WINDOW_WIDTH;
+        int windowHeight = EndlessCavern.RENDER_WINDOW_HEIGHT;
         for (int i = 0; i < packages.Count; i++)
         {
             for (int j = 0; j < packages[0].biomePrefabs.Count; j++)
@@ -31,31 +33,31 @@ public class ProceduralPrefabs : MonoBehaviour
                 switch (currType)
                 {
                     case PrefabType.fullFloor:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 1300, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.rectangleFloor:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 600, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.crossFloor:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 100, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.triangleFloor:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 400, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.cornerFloor:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 750, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.triangleWall:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 750, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.rectangleWall:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 500, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.diagonalWall:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 100, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                     case PrefabType.cornerWall:
-                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], 400, pool);
+                        poolManagers[i, j] = new PoolManager(packages[0].biomePrefabs[j], windowWidth, windowHeight, poolObject);
                         break;
                 }
             }
@@ -578,24 +580,14 @@ public class ProceduralPrefabs : MonoBehaviour
         packages[0].biomePrefabs[8].GetComponent<MeshCollider>().sharedMesh = cornerMesh;
     }
 
-    public void GetPackageSubscription(int chunkX, int chunkY, int biomeID = 0)
+    public GameObject[][,] GetPackageSubscription(int biomeID = 0)
     {
+        GameObject[][,] package = new GameObject[packages[biomeID].biomePrefabs.Count][,];
         for (int i = 0; i < packages[biomeID].biomePrefabs.Count; i++)
         {
-            poolManagers[biomeID, i].Subscribe(chunkX, chunkY);
+            package[i] = poolManagers[biomeID, i].Subscribe();
         }
-    }
-    public void UnSubscribe(int chunkX, int chunkY, int biomeID = 0)
-    {
-        for (int i = 0; i < packages[biomeID].biomePrefabs.Count; i++)
-        {
-            poolManagers[biomeID, i].UnSubscribe(chunkX, chunkY);
-        }
-    }
-
-    public GameObject GetPrefab(int chunkX, int chunkY, PrefabType prefabType, int biomeID = 0)
-    {
-        return poolManagers[biomeID, (int)prefabType].GetPrefab(chunkX, chunkY);
+        return package;
     }
 }
 

@@ -6,6 +6,8 @@ public class EndlessCavern : MonoBehaviour
 {
     public static int CHUNK_SIZE;
     public static int SEED;
+    public static int RENDER_WINDOW_WIDTH = 13;
+    public static int RENDER_WINDOW_HEIGHT = 11;
 
     [SerializeField] private Transform observer;
 
@@ -26,6 +28,10 @@ public class EndlessCavern : MonoBehaviour
         proceduralPrefabs = gameObject.GetComponent<ProceduralPrefabs>();
         previousObserverPos = observer.position + Vector3.one * 4;
 
+        //orthographicSize * 2 * (1 + (sin(angleOfIncident))^2) = height of screen in world units.
+        //height of screen in world units * aspectRatio = width of screen in world units.
+        //Use this to calculate RENDER_WINDOW dimensions at startup.
+
         using (StreamReader reader = new StreamReader("Assets/Preferences/Cavern_Config.txt"))
         {
             string line;
@@ -39,7 +45,7 @@ public class EndlessCavern : MonoBehaviour
 
     private void Update()
     {
-        if (Vector2.SqrMagnitude(previousObserverPos - observer.position) < 2)
+        if (Vector2.SqrMagnitude(previousObserverPos - observer.position) < 0.5f)
             return;
         previousObserverPos = observer.position;
         int observerGridX = ((int)observer.position.x / CHUNK_SIZE) - (observer.position.x < 0 ? 1 : 0);
@@ -63,16 +69,16 @@ public class EndlessCavern : MonoBehaviour
                 {
                     nearbyChunks.Add(currentChunkGridPos, new MapChunk(currentChunkGridPos, tilesGenerator, proceduralPrefabs));
                 }
-                nearbyChunks[currentChunkGridPos].Update();
                 bool inRenderRange = false;
                 for (int i = progressThresholds.Count - 1; i >= 0; i--)
                 {
                     if (currentChunkMinSqrDistance < Mathf.Pow(progressThresholds[i].distance, 2))
                     {
                         nearbyChunks[currentChunkGridPos].ObtainStage(progressThresholds[i].stage);
-                        if (i == 0)
+                        if (i == 3)
                         {
-                            //tell the chunkMap to update tiles
+                            if (nearbyChunks[currentChunkGridPos].tilesPrepared)
+                                nearbyChunks[currentChunkGridPos].Update(observer.position);
                         }
                         inRenderRange = true;
                         break;
@@ -80,7 +86,7 @@ public class EndlessCavern : MonoBehaviour
                 }
                 if (!inRenderRange)
                 {
-                    nearbyChunks[currentChunkGridPos].Deactivate();
+                    //nearbyChunks[currentChunkGridPos].Deactivate();
                 }
             }
         }
@@ -88,54 +94,107 @@ public class EndlessCavern : MonoBehaviour
 
     private class MapChunk
     {
-        //Objects in a radius of 7 units should be visible
         public bool[,] tiles;
         //later attributes go here as bool[,] arrays
 
         private TilesGenerator tilesGenerator;
-        private ProceduralPrefabs prefabs;
         private int chunkX, chunkY;
         private int chunkSize;
         private float cellWidth, cellHeight;
         private bool upBoundary, rightBoundary, upRightCell;
 
+        private GameObject[][,] prefabs;
+        private PrefabData[,] marchingSquares;
         private const int FINAL_STAGE = 3;
         private int nextStage, goalStage;
-        private bool hasSubscribed;
-        private bool requestedNextStage;
         public bool tilesPrepared;
+
+        private struct PrefabData {
+            public int floorPrefabType;
+            public int floorRotation;
+            public int wallPrefabType;
+            public int wallRotation;
+        }
 
         public MapChunk(Vector2 chunkPos, TilesGenerator tilesGenerator, ProceduralPrefabs proceduralPrefabs)
         {
             this.tilesGenerator = tilesGenerator;
-            prefabs = proceduralPrefabs;
 
             chunkX = (int)chunkPos.x;
             chunkY = (int)chunkPos.y;
             chunkSize = CHUNK_SIZE;
             cellWidth = ProceduralPrefabs.CELL_WIDTH;
             cellHeight = ProceduralPrefabs.CELL_HEIGHT;
-
             upBoundary = rightBoundary = upRightCell = false;
 
+            marchingSquares = new PrefabData[chunkSize, chunkSize];
             nextStage = 0;
             goalStage = -1;
-            requestedNextStage = tilesPrepared = false;
+            tilesPrepared = false;
+
+            prefabs = proceduralPrefabs.GetPackageSubscription();
         }
-        public void Update()
+        public void Update(Vector3 observerPos)
         {
-            while(goalStage >= nextStage)
+            int windowWidth = RENDER_WINDOW_WIDTH / 2;
+            int windowHeight = RENDER_WINDOW_HEIGHT / 2;
+            int obsX = (int)observerPos.x - 1;
+            int obsY = (int)observerPos.y - 1;
+
+            int winX = obsX - windowWidth;
+            int winY = obsY - windowHeight;
+
+            int minX = Mathf.Max(obsX - windowWidth, chunkX * chunkSize);
+            int maxX = Mathf.Min(obsX + windowWidth, chunkX * chunkSize + chunkSize - 1);
+            int minY = Mathf.Max(obsY - windowHeight, chunkY * chunkSize);
+            int maxY = Mathf.Min(obsY + windowHeight, chunkY * chunkSize + chunkSize - 1);
+            int winXOffset = minX - winX;
+            int winYOffset = minY - winY;
+            if (maxX >= minX && maxY >= minY)
             {
-                if (!requestedNextStage && nextStage != FINAL_STAGE)
-                    tiles = tilesGenerator.ExecuteGenerationStep(chunkX, chunkY, nextStage++);
-                if (nextStage == FINAL_STAGE)
+                minX = ((minX % chunkSize) + chunkSize) % chunkSize;
+                maxX = ((maxX % chunkSize) + chunkSize) % chunkSize;
+                minY = ((minY % chunkSize) + chunkSize) % chunkSize;
+                maxY = ((maxY % chunkSize) + chunkSize) % chunkSize;
+                FollowPlayer(minX, maxX, minY, maxY, winXOffset, winYOffset);
+            }
+
+            ObtainNeighbors();
+        }
+        private void FollowPlayer(int minX, int maxX, int minY, int maxY, int winXOffset, int winYOffset)
+        {
+            Vector3 basePosition = Vector3.zero, midCell = Vector3.zero, axis = Vector3.back;
+
+            for (int x = minX; x <= maxX; x++)
+            {
+                for (int y = minY; y <= maxY; y++)
                 {
-                    RenderChunk();
-                    tilesPrepared = true;
-                    nextStage++;
+                    if (marchingSquares[x, y].floorPrefabType == -1)
+                        continue;
+
+                    basePosition.x = (chunkX * chunkSize + x) * cellWidth;
+                    basePosition.y = (chunkY * chunkSize + y) * cellHeight;
+                    midCell.x = basePosition.x + cellWidth / 2f;
+                    midCell.y = basePosition.y + cellHeight / 2f;
+
+                    prefabs[marchingSquares[x, y].floorPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                        transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    prefabs[marchingSquares[x, y].floorPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                        transform.RotateAround(midCell, axis, 90f * marchingSquares[x, y].floorRotation);
+
+                    if (marchingSquares[x, y].wallPrefabType != -1)
+                    {
+                        prefabs[marchingSquares[x, y].wallPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                            transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                        prefabs[marchingSquares[x, y].wallPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                            transform.RotateAround(midCell, axis, 90f * marchingSquares[x, y].wallRotation);
+                    }
                 }
             }
-            if (hasSubscribed)
+        }
+        private void ObtainNeighbors()
+        {
+            if (tilesPrepared)
             {
                 if (upBoundary && rightBoundary && upRightCell)
                     return;
@@ -144,7 +203,7 @@ public class EndlessCavern : MonoBehaviour
                     bool[,] upChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY + 1));
                     if (upChunk != null)
                     {
-                        CreateUpperCells(upChunk);
+                        UpperCells(upChunk);
                         upBoundary = true;
                     }
                 }
@@ -153,7 +212,7 @@ public class EndlessCavern : MonoBehaviour
                     bool[,] rightChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX + 1, chunkY));
                     if (rightChunk != null)
                     {
-                        CreateRightCells(rightChunk);
+                        RightCells(rightChunk);
                         rightBoundary = true;
                     }
                 }
@@ -164,39 +223,33 @@ public class EndlessCavern : MonoBehaviour
                     bool[,] upChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY + 1));
                     if (upRightChunk != null)
                     {
-                        CreateTopRightCell(upRightChunk[0, 0], upChunk[chunkSize - 1, 0], rightChunk[0, chunkSize - 1]);
+                        UpRightCell(upRightChunk[0, 0], upChunk[chunkSize - 1, 0], rightChunk[0, chunkSize - 1]);
                         upRightCell = true;
                     }
                 }
             }
         }
-        public void Deactivate()
-        {
-            if (hasSubscribed)
-            {
-                prefabs.UnSubscribe(chunkX, chunkY);
-                hasSubscribed = false;
-                upBoundary = rightBoundary = upRightCell = false;
-            }
-        }
         public void ObtainStage(int stage)
         {
-            if (tilesPrepared && stage == FINAL_STAGE)
-                RenderChunk();
-            goalStage = stage;
-            Update();
-        }
+            //This logic will change after the implementation of threading.
+            //No while loop will be required, the next stage tiles will be requested in OnTilesRecieved function.
 
-        private void RenderChunk()
-        {
-            if (!hasSubscribed)
+            goalStage = stage;
+            
+            while(goalStage >= nextStage)
             {
-                prefabs.GetPackageSubscription(chunkX, chunkY);
-                hasSubscribed = true;
-                CreateCells();
+                if (nextStage != FINAL_STAGE)
+                    tiles = tilesGenerator.ExecuteGenerationStep(chunkX, chunkY, nextStage++);
+                if (nextStage == FINAL_STAGE)
+                {
+                    tilesPrepared = true;
+                    nextStage++;
+                    MidCells();
+                }
             }
+            ObtainNeighbors();
         }
-        private void CreateCells()
+        private void MidCells()
         {
             for (int y = 0; y < chunkSize - 1; y++)
             {
@@ -204,80 +257,68 @@ public class EndlessCavern : MonoBehaviour
                 {
                     int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (tiles[x + 1, y] ? 1 : 0) * 4 + (tiles[x + 1, y + 1] ? 1 : 0) * 2 + (tiles[x, y + 1] ? 1 : 0);
                     if (binaryToDecimal == 0)
-                        continue;
-                    GameObject floorObj = null;
-                    Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
-                    if (binaryToDecimal == 15)
                     {
-                        floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
-                        floorObj.transform.position = basePosition;
+                        marchingSquares[x, y].floorPrefabType = -1;
                         continue;
                     }
-                    GameObject wallObj = null;
-                    Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
-
-                    MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
-
-                    binaryToDecimal = 15 - binaryToDecimal;
-
-                    MarchingSquareFloor(binaryToDecimal, floorObj, chunkX, chunkY, ref basePosition, ref midCell);
+                    if (binaryToDecimal == 15)
+                    {
+                        marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
+                        marchingSquares[x, y].floorRotation = 0;
+                        marchingSquares[x, y].wallPrefabType = -1;
+                        continue;
+                    }
+                    MarchingSquareWall(binaryToDecimal, x, y);
+                    MarchingSquareFloor(15 - binaryToDecimal, x, y);  
                 }
             }
         }
-        private void CreateUpperCells(bool[,] upChunk)
+        private void UpperCells(bool[,] upChunk)
         {
             int y = chunkSize - 1;
             for (int x = 0; x < chunkSize - 1; x++)
             {
                 int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (tiles[x + 1, y] ? 1 : 0) * 4 + (upChunk[x + 1, 0] ? 1 : 0) * 2 + (upChunk[x, 0] ? 1 : 0);
                 if (binaryToDecimal == 0)
-                    continue;
-                GameObject floorObj = null;
-                Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
-                if (binaryToDecimal == 15)
                 {
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
-                    floorObj.transform.position = basePosition;
+                    marchingSquares[x, y].floorPrefabType = -1;
                     continue;
                 }
-                GameObject wallObj = null;
-                Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
-
-                MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
-
-                binaryToDecimal = 15 - binaryToDecimal;
-
-                MarchingSquareFloor(binaryToDecimal, floorObj, chunkX, chunkY, ref basePosition, ref midCell);
+                if (binaryToDecimal == 15)
+                {
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
+                    marchingSquares[x, y].floorRotation = 0;
+                    marchingSquares[x, y].wallPrefabType = -1;
+                    continue;
+                }
+                MarchingSquareWall(binaryToDecimal, x, y);
+                MarchingSquareFloor(15 - binaryToDecimal, x, y);
             }
 
         }
-        private void CreateRightCells(bool[,] rightChunk)
+        private void RightCells(bool[,] rightChunk)
         {
             int x = chunkSize - 1;
             for (int y = 0; y < chunkSize - 1; y++)
             {
                 int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (rightChunk[0, y] ? 1 : 0) * 4 + (rightChunk[0, y + 1] ? 1 : 0) * 2 + (tiles[x, y + 1] ? 1 : 0);
                 if (binaryToDecimal == 0)
-                    continue;
-                GameObject floorObj = null;
-                Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
-                if (binaryToDecimal == 15)
                 {
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
-                    floorObj.transform.position = basePosition;
+                    marchingSquares[x, y].floorPrefabType = -1;
                     continue;
                 }
-                GameObject wallObj = null;
-                Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
-
-                MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
-
-                binaryToDecimal = 15 - binaryToDecimal;
-
-                MarchingSquareFloor(binaryToDecimal, floorObj, chunkX, chunkY, ref basePosition, ref midCell);
+                if (binaryToDecimal == 15)
+                {
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
+                    marchingSquares[x, y].floorRotation = 0;
+                    marchingSquares[x, y].wallPrefabType = -1;
+                    continue;
+                }
+                MarchingSquareWall(binaryToDecimal, x, y);
+                MarchingSquareFloor(15 - binaryToDecimal, x, y);
             }
         }
-        private void CreateTopRightCell(bool cornerTile, bool upTile, bool rightTile)
+        private void UpRightCell(bool cornerTile, bool upTile, bool rightTile)
         {
             int x = chunkSize - 1;
             int y = chunkSize - 1;
@@ -285,165 +326,138 @@ public class EndlessCavern : MonoBehaviour
             int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (rightTile ? 1 : 0) * 4 + (cornerTile ? 1 : 0) * 2 + (upTile ? 1 : 0);
             if (binaryToDecimal == 0)
                 return;
-            GameObject floorObj = null;
-            Vector3 basePosition = new Vector2((chunkX * chunkSize + x) * cellWidth, (chunkY * chunkSize + y) * cellHeight);
             if (binaryToDecimal == 15)
             {
-                floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.fullFloor);
-                floorObj.transform.position = basePosition;
+                marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
+                marchingSquares[x, y].floorRotation = 0;
+                marchingSquares[x, y].wallPrefabType = -1;
                 return;
             }
-            GameObject wallObj = null;
-            Vector3 midCell = basePosition + new Vector3(cellWidth / 2f, cellHeight / 2f, 0);
-
-            MarchingSquareWall(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
-
-            binaryToDecimal = 15 - binaryToDecimal;
-
-            MarchingSquareFloor(binaryToDecimal, wallObj, chunkX, chunkY, ref basePosition, ref midCell);
+            MarchingSquareWall(binaryToDecimal, x, y);
+            MarchingSquareFloor(binaryToDecimal, x, y);
         }
 
-        private void MarchingSquareWall(int code, GameObject wallObj, int chunkX, int chunkY, ref Vector3 basePosition, ref Vector3 midCell)
+        private void MarchingSquareWall(int code, int x, int y)
         {
             switch (code)
             {
                 case 1:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.cornerWall;
+                    marchingSquares[x, y].wallRotation = 3;
                     break;
                 case 2:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.cornerWall;
+                    marchingSquares[x, y].wallRotation = 0;
                     break;
                 case 3:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleWall;
+                    marchingSquares[x, y].wallRotation = 0;
                     break;
                 case 4:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.cornerWall;
+                    marchingSquares[x, y].wallRotation = 1;
                     break;
                 case 5:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.diagonalWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.diagonalWall;
+                    marchingSquares[x, y].wallRotation = 0;
                     break;
                 case 6:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleWall;
+                    marchingSquares[x, y].wallRotation = 1;
                     break;
                 case 7:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.triangleWall;
+                    marchingSquares[x, y].wallRotation = 0;
                     break;
                 case 8:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.cornerWall;
+                    marchingSquares[x, y].wallRotation = 2;
                     break;
                 case 9:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleWall;
+                    marchingSquares[x, y].wallRotation = 3;
                     break;
                 case 10:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.diagonalWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.diagonalWall;
+                    marchingSquares[x, y].wallRotation = 1;
                     break;
                 case 11:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.triangleWall;
+                    marchingSquares[x, y].wallRotation = 3;
                     break;
                 case 12:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleWall;
+                    marchingSquares[x, y].wallRotation = 2;
                     break;
                 case 13:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.triangleWall;
+                    marchingSquares[x, y].wallRotation = 2;
                     break;
                 case 14:
-                    wallObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleWall);
-                    wallObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    wallObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.triangleWall;
+                    marchingSquares[x, y].wallRotation = 1;
                     break;
             }
         }
-        private void MarchingSquareFloor(int code, GameObject floorObj, int chunkX, int chunkY, ref Vector3 basePosition, ref Vector3 midCell)
+        private void MarchingSquareFloor(int code, int x, int y)
         {
             switch (code)
             {
                 case 1:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.cornerFloor;
+                    marchingSquares[x, y].floorRotation = 3;
                     break;
                 case 2:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.cornerFloor;
+                    marchingSquares[x, y].floorRotation = 0;
                     break;
                 case 3:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleFloor;
+                    marchingSquares[x, y].floorRotation = 0;
                     break;
                 case 4:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.cornerFloor;
+                    marchingSquares[x, y].floorRotation = 1;
                     break;
                 case 5:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.crossFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.crossFloor;
+                    marchingSquares[x, y].floorRotation = 1;
                     break;
                 case 6:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleFloor;
+                    marchingSquares[x, y].floorRotation = 1;
                     break;
                 case 7:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.triangleFloor;
+                    marchingSquares[x, y].floorRotation = 0;
                     break;
                 case 8:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.cornerFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.cornerFloor;
+                    marchingSquares[x, y].floorRotation = 2;
                     break;
                 case 9:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleFloor;
+                    marchingSquares[x, y].floorRotation = 3;
                     break;
                 case 10:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.crossFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.crossFloor;
+                    marchingSquares[x, y].floorRotation = 0;
                     break;
                 case 11:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, -90f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.triangleFloor;
+                    marchingSquares[x, y].floorRotation = 3;
                     break;
                 case 12:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.rectangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.rectangleFloor;
+                    marchingSquares[x, y].floorRotation = 2;
                     break;
                 case 13:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 180f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.triangleFloor;
+                    marchingSquares[x, y].floorRotation = 2;
                     break;
                 case 14:
-                    floorObj = prefabs.GetPrefab(chunkX, chunkY, ProceduralPrefabs.PrefabType.triangleFloor);
-                    floorObj.transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    floorObj.transform.RotateAround(midCell, Vector3.back, 90f);
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.triangleFloor;
+                    marchingSquares[x, y].floorRotation = 1;
                     break;
             }
         }
@@ -466,7 +480,7 @@ public class EndlessCavern : MonoBehaviour
         MapChunk debugChunk = nearbyChunks[debugChunkPos];
         if (!debugChunk.tilesPrepared)
             return;
-        Gizmos.color = Color.yellow;
+        Gizmos.color = new Color(Color.yellow.r, Color.yellow.g, Color.yellow.b, 0.2f);
         for (int y = 0; y < CHUNK_SIZE; y++)
         {
             for (int x = 0; x < CHUNK_SIZE; x++)
