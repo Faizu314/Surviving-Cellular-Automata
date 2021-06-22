@@ -4,14 +4,13 @@ using UnityEngine;
 
 public class ExplorationSaver : MonoBehaviour
 {
-    public Dictionary<Vector2, bool[,]> exploredMap;
-    void Start()
-    {
-        
-    }
+    [SerializeField] private Transform player;
+    private Dictionary<Vector2, bool[,]> exploredMap;
 
-    void Update()
+    public void placeholdername(Vector2 chunkPos, int minX, int maxX, int minY, int maxY)
     {
-        
+        // Exploration window will be a subset of the Render window
+        // It will also be a square
+        // Shrink the bounds to get the exploration window :)
     }
 }

@@ -4,10 +4,6 @@ GitBash {
 	git push origin main
 }
 
-Maybe there should be multiple types of MapChunks
-Some may take less than O(N*N) operations to render like the rooms chunk. But exploration saver will have to account for this
-and endless cavern will have to know in advance which chunk it is adding to the list.
-
 Future Plans:
 
 Biomes {

@@ -5,17 +5,32 @@ using UnityEngine;
 
 public class TilesGenerator : MonoBehaviour
 {
-    //Probability of a True cell in initialization.
-    private float P;
-    //Whether the boundary cells are considered true or false
-    private bool E;
-    //Birth Rate
-    private int B;
-    //Death Rate
-    private int D;
+    private float INITIAL_TRUE_CELL_PROBABILITY;
+    private bool EDGE_CELL;
+    private int BIRTH_RATE;
+    private int DEATH_RATE;
     private int ITERATIONS;
 
     public List<Func<int, int, bool[,]>> GenerationSteps = new List<Func<int, int, bool[,]>>();
+
+    private void LoadTemplate()
+    {
+        using (StreamReader reader = new StreamReader("Assets/Preferences/CA_Config.txt"))
+        {
+            string line;
+            line = reader.ReadLine();
+            INITIAL_TRUE_CELL_PROBABILITY = float.Parse(line); 
+            line = reader.ReadLine();
+            EDGE_CELL = bool.Parse(line);
+            line = reader.ReadLine();
+            BIRTH_RATE = int.Parse(line);
+            line = reader.ReadLine();
+            DEATH_RATE = int.Parse(line);
+            line = reader.ReadLine();
+            ITERATIONS = int.Parse(line);
+            reader.Close();
+        }
+    }
 
     private void Start()
     {
@@ -23,95 +38,74 @@ public class TilesGenerator : MonoBehaviour
         GenerationSteps.Add(ApplyCellularAutomaton);
         GenerationSteps.Add(ChunkCorrection);
 
-        using (StreamReader reader = new StreamReader("Assets/Preferences/CA_Config.txt"))
-        {
-            string line;
-            line = reader.ReadLine();
-            P = float.Parse(line); 
-            line = reader.ReadLine();
-            E = bool.Parse(line);
-            line = reader.ReadLine();
-            B = int.Parse(line);
-            line = reader.ReadLine();
-            D = int.Parse(line);
-            line = reader.ReadLine();
-            ITERATIONS = int.Parse(line);
-            reader.Close();
-        }
+        LoadTemplate();
     }
     public bool[,] ExecuteGenerationStep(int chunkX, int chunkY, int step)
     {
         return GenerationSteps[step](chunkX, chunkY);
     }
 
+    private int GetChunkSeed(int chunkX, int chunkY)
+    {
+        System.Random prng = new System.Random(EndlessCavern.SEED);
+        prng = new System.Random(prng.Next(-100000, 100000) + chunkX);
+        int chunkSeed = prng.Next(-100000, 100000) + chunkY;
+
+        return chunkSeed;
+    }
     private bool[,] GenerateInitialMaps(int chunkX, int chunkY)
     {
-        bool[,] initialMainTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX, chunkY));
+        bool[,] initialMainTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY, 0));
         if (initialMainTiles == null)
         {
-            System.Random prngMain = new System.Random(EndlessCavern.SEED);
-            prngMain = new System.Random(prngMain.Next(-100000, 100000) + chunkX);
-            prngMain = new System.Random(prngMain.Next(-100000, 100000) + chunkY);
-            initialMainTiles = GetInitialMap(prngMain);
+            initialMainTiles = GetInitialMap(chunkX, chunkY);
         }
 
-        bool[,] initialUpTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX, chunkY + 1));
+        bool[,] initialUpTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY + 1, 0));
         if (initialUpTiles == null)
         {
-            System.Random prngUp = new System.Random(EndlessCavern.SEED);
-            prngUp = new System.Random(prngUp.Next(-100000, 100000) + chunkX);
-            prngUp = new System.Random(prngUp.Next(-100000, 100000) + chunkY + 1);
-            initialUpTiles = GetInitialMap(prngUp);
+            initialUpTiles = GetInitialMap(chunkX, chunkY + 1);
         }
 
-        bool[,] initialDownTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX, chunkY - 1));
+        bool[,] initialDownTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY - 1, 0));
         if (initialDownTiles == null)
         {
-            System.Random prngDown = new System.Random(EndlessCavern.SEED);
-            prngDown = new System.Random(prngDown.Next(-100000, 100000) + chunkX);
-            prngDown = new System.Random(prngDown.Next(-100000, 100000) + chunkY - 1);
-            initialDownTiles = GetInitialMap(prngDown);
+            initialDownTiles = GetInitialMap(chunkX, chunkY - 1);
         }
 
-        bool[,] initialLeftTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX - 1, chunkY));
+        bool[,] initialLeftTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX - 1, chunkY, 0));
         if (initialLeftTiles == null)
         {
-            System.Random prngLeft = new System.Random(EndlessCavern.SEED);
-            prngLeft = new System.Random(prngLeft.Next(-100000, 100000) + chunkX - 1);
-            prngLeft = new System.Random(prngLeft.Next(-100000, 100000) + chunkY);
-            initialLeftTiles = GetInitialMap(prngLeft);
+            initialLeftTiles = GetInitialMap(chunkX - 1, chunkY);
         }
 
-        bool[,] initialRightTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX + 1, chunkY));
+        bool[,] initialRightTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX + 1, chunkY, 0));
         if (initialRightTiles == null)
         {
-            System.Random prngRight = new System.Random(EndlessCavern.SEED);
-            prngRight = new System.Random(prngRight.Next(-100000, 100000) + chunkX + 1);
-            prngRight = new System.Random(prngRight.Next(-100000, 100000) + chunkY);
-            initialRightTiles = GetInitialMap(prngRight);
+            initialRightTiles = GetInitialMap(chunkX + 1, chunkY);
         }
 
-        MapDataSaver.instance.SaveInitialTiles(new Vector2(chunkX, chunkY), initialMainTiles);
-        MapDataSaver.instance.SaveInitialTiles(new Vector2(chunkX, chunkY + 1), initialUpTiles);
-        MapDataSaver.instance.SaveInitialTiles(new Vector2(chunkX, chunkY - 1), initialDownTiles);
-        MapDataSaver.instance.SaveInitialTiles(new Vector2(chunkX + 1, chunkY), initialRightTiles);
-        MapDataSaver.instance.SaveInitialTiles(new Vector2(chunkX - 1, chunkY), initialLeftTiles);
+        MapDataSaver.instance.SaveTiles(new Vector3(chunkX, chunkY, 0), initialMainTiles);
+        MapDataSaver.instance.SaveTiles(new Vector3(chunkX, chunkY + 1, 0), initialUpTiles);
+        MapDataSaver.instance.SaveTiles(new Vector3(chunkX, chunkY - 1, 0), initialDownTiles);
+        MapDataSaver.instance.SaveTiles(new Vector3(chunkX + 1, chunkY, 0), initialRightTiles);
+        MapDataSaver.instance.SaveTiles(new Vector3(chunkX - 1, chunkY, 0), initialLeftTiles);
 
         return initialMainTiles;
     }
     private bool[,] ApplyCellularAutomaton(int chunkX, int chunkY)
     {
-        bool[,] iterativeMainTiles = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX, chunkY));
+        bool[,] iterativeMainTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY, 1));
         if (iterativeMainTiles != null)
             return iterativeMainTiles;
 
         int chunkSize = EndlessCavern.CHUNK_SIZE;
 
-        bool[,] initialMainTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX, chunkY));
-        bool[,] initialUpTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX, chunkY + 1));
-        bool[,] initialDownTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX, chunkY - 1));
-        bool[,] initialLeftTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX - 1, chunkY));
-        bool[,] initialRightTiles = MapDataSaver.instance.GetInitialTiles(new Vector2(chunkX + 1, chunkY));
+        bool[,] initialMainTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY, 0));
+        bool[,] initialUpTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY + 1, 0));
+        bool[,] initialDownTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY - 1, 0));
+        bool[,] initialLeftTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX - 1, chunkY, 0));
+        bool[,] initialRightTiles = MapDataSaver.instance.GetTiles(new Vector3(chunkX + 1, chunkY, 0));
 
         iterativeMainTiles = new bool[chunkSize, chunkSize];
         bool[,] iterativeUpTiles = new bool[chunkSize, chunkSize];
@@ -148,25 +142,21 @@ public class TilesGenerator : MonoBehaviour
             initialDownTiles = iterativeDownTiles;
             iterativeDownTiles = temp;
         }
-        //iterativeMainTiles = initialMainTiles;
 
-        MapDataSaver.instance.SaveAutomataTiles(new Vector2(chunkX, chunkY), initialMainTiles);
+        MapDataSaver.instance.SaveTiles(new Vector3(chunkX, chunkY, 1), initialMainTiles);
 
         return initialMainTiles;
     }
     private bool[,] ChunkCorrection(int chunkX, int chunkY)
     {
-        bool[,] chunkMap = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY));
+        bool[,] chunkMap = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY, 2));
         if (chunkMap != null)
             return chunkMap;
 
         int chunkSize = EndlessCavern.CHUNK_SIZE;
+        int chunkSeed = GetChunkSeed(chunkX, chunkY);
 
-        System.Random prngMain = new System.Random(EndlessCavern.SEED);
-        prngMain = new System.Random(prngMain.Next(-100000, 100000) + chunkX);
-        int chunkSeed = prngMain.Next(-100000, 100000) + chunkY;
-
-        chunkMap = MapDataSaver.instance.GetAutomataTiles(new Vector2(chunkX, chunkY));
+        chunkMap = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY, 1));
         List<int> fillIds = new List<int>();
         fillIds.Add(-1);
 
@@ -201,15 +191,16 @@ public class TilesGenerator : MonoBehaviour
 
         chunkMap = Connector.ConnectAutomataPaths(fillers, fillIds, blockMap, fillMap, chunkMap, chunkSeed);
 
-        MapDataSaver.instance.SaveCorrectedTiles(new Vector2(chunkX, chunkY), chunkMap);
+        MapDataSaver.instance.SaveTiles(new Vector3(chunkX, chunkY, 2), chunkMap);
 
         return chunkMap;
     }
 
     //Step one jobs
     #region
-    private bool[,] GetInitialMap(System.Random prng)
+    private bool[,] GetInitialMap(int chunkX, int chunkY)
     {
+        System.Random prng = new System.Random(GetChunkSeed(chunkX, chunkY));
         int chunkSize = EndlessCavern.CHUNK_SIZE;
 
         bool[,] initialTiles = new bool[chunkSize, chunkSize];
@@ -218,7 +209,7 @@ public class TilesGenerator : MonoBehaviour
         {
             for (int x = 0; x < chunkSize; x++)
             {
-                initialTiles[x, y] = prng.Next(-100000, 100000) < P;
+                initialTiles[x, y] = prng.Next(-100000, 100000) < INITIAL_TRUE_CELL_PROBABILITY;
             }
         }
 
@@ -247,26 +238,26 @@ public class TilesGenerator : MonoBehaviour
                 }
                 else
                 {
-                    dR = (x == chunkSize - 1) || y == 0 ? E : initialUpTiles[x + 1, y - 1];
-                    d = y == 0 ? E : initialUpTiles[x, y - 1];
-                    dL = y == 0 || x == 0 ? E : initialUpTiles[x - 1, y - 1];
+                    dR = (x == chunkSize - 1) || y == 0 ? EDGE_CELL : initialUpTiles[x + 1, y - 1];
+                    d = y == 0 ? EDGE_CELL : initialUpTiles[x, y - 1];
+                    dL = y == 0 || x == 0 ? EDGE_CELL : initialUpTiles[x - 1, y - 1];
                 }
 
-                l = x == 0 ? E : initialUpTiles[x - 1, y];
-                uL = x == 0 || (y == chunkSize - 1) ? E : initialUpTiles[x - 1, y + 1];
-                u = (y == chunkSize - 1) ? E : initialUpTiles[x, y + 1];
-                uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialUpTiles[x + 1, y + 1];
-                r = (x == chunkSize - 1) ? E : initialUpTiles[x + 1, y];
+                l = x == 0 ? EDGE_CELL : initialUpTiles[x - 1, y];
+                uL = x == 0 || (y == chunkSize - 1) ? EDGE_CELL : initialUpTiles[x - 1, y + 1];
+                u = (y == chunkSize - 1) ? EDGE_CELL : initialUpTiles[x, y + 1];
+                uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? EDGE_CELL : initialUpTiles[x + 1, y + 1];
+                r = (x == chunkSize - 1) ? EDGE_CELL : initialUpTiles[x + 1, y];
 
                 t += Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
 
                 if (initialUpTiles[x, y])
                 {
-                    iterativeUpTiles[x, y] = !(t < D);
+                    iterativeUpTiles[x, y] = !(t < DEATH_RATE);
                 }
                 else
                 {
-                    iterativeUpTiles[x, y] = t > B;
+                    iterativeUpTiles[x, y] = t > BIRTH_RATE;
                 }
             }
         }
@@ -290,26 +281,26 @@ public class TilesGenerator : MonoBehaviour
                 }
                 else
                 {
-                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialLeftTiles[x + 1, y + 1];
-                    r = (x == chunkSize - 1) ? E : initialLeftTiles[x + 1, y];
-                    dR = (x == chunkSize - 1) || y == 0 ? E : initialLeftTiles[x + 1, y - 1];
+                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? EDGE_CELL : initialLeftTiles[x + 1, y + 1];
+                    r = (x == chunkSize - 1) ? EDGE_CELL : initialLeftTiles[x + 1, y];
+                    dR = (x == chunkSize - 1) || y == 0 ? EDGE_CELL : initialLeftTiles[x + 1, y - 1];
                 }
 
-                l = x == 0 ? E : initialLeftTiles[x - 1, y];
-                uL = x == 0 || (y == chunkSize - 1) ? E : initialLeftTiles[x - 1, y + 1];
-                u = (y == chunkSize - 1) ? E : initialLeftTiles[x, y + 1];
-                d = y == 0 ? E : initialLeftTiles[x, y - 1];
-                dL = y == 0 || x == 0 ? E : initialLeftTiles[x - 1, y - 1];
+                l = x == 0 ? EDGE_CELL : initialLeftTiles[x - 1, y];
+                uL = x == 0 || (y == chunkSize - 1) ? EDGE_CELL : initialLeftTiles[x - 1, y + 1];
+                u = (y == chunkSize - 1) ? EDGE_CELL : initialLeftTiles[x, y + 1];
+                d = y == 0 ? EDGE_CELL : initialLeftTiles[x, y - 1];
+                dL = y == 0 || x == 0 ? EDGE_CELL : initialLeftTiles[x - 1, y - 1];
 
                 t += Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
 
                 if (initialLeftTiles[x, y])
                 {
-                    iterativeLeftTiles[x, y] = !(t < D);
+                    iterativeLeftTiles[x, y] = !(t < DEATH_RATE);
                 }
                 else
                 {
-                    iterativeLeftTiles[x, y] = t > B;
+                    iterativeLeftTiles[x, y] = t > BIRTH_RATE;
                 }
             }
         }
@@ -327,7 +318,7 @@ public class TilesGenerator : MonoBehaviour
 
                 if (x == 0 && y == 0)
                 {
-                    dL = E;
+                    dL = EDGE_CELL;
                     l = initialLeftTiles[chunkSize - 1, y];
                     uL = initialLeftTiles[chunkSize - 1, y + 1];
 
@@ -340,7 +331,7 @@ public class TilesGenerator : MonoBehaviour
                 }
                 else if (x == chunkSize - 1 && y == chunkSize - 1)
                 {
-                    uR = E;
+                    uR = EDGE_CELL;
                     r = initialRightTiles[0, y];
                     dR = initialRightTiles[0, y - 1];
 
@@ -353,7 +344,7 @@ public class TilesGenerator : MonoBehaviour
                 }
                 else if (x == 0 && y == chunkSize - 1)
                 {
-                    uL = E;
+                    uL = EDGE_CELL;
                     l = initialLeftTiles[chunkSize - 1, y];
                     dL = initialLeftTiles[chunkSize - 1, y - 1];
 
@@ -366,7 +357,7 @@ public class TilesGenerator : MonoBehaviour
                 }
                 else if (x == chunkSize - 1 && y == 0)
                 {
-                    dR = E;
+                    dR = EDGE_CELL;
                     r = initialRightTiles[0, y];
                     uR = initialRightTiles[0, y + 1];
 
@@ -441,11 +432,11 @@ public class TilesGenerator : MonoBehaviour
 
                 if (initialMainTiles[x, y])
                 {
-                    iterativeMainTiles[x, y] = !(t < D);
+                    iterativeMainTiles[x, y] = !(t < DEATH_RATE);
                 }
                 else
                 {
-                    iterativeMainTiles[x, y] = t > B;
+                    iterativeMainTiles[x, y] = t > BIRTH_RATE;
                 }
             }
         }
@@ -469,26 +460,26 @@ public class TilesGenerator : MonoBehaviour
                 }
                 else
                 {
-                    l = x == 0 ? E : initialRightTiles[x - 1, y];
-                    uL = x == 0 || (y == chunkSize - 1) ? E : initialRightTiles[x - 1, y + 1];
-                    dL = y == 0 || x == 0 ? E : initialRightTiles[x - 1, y - 1];
+                    l = x == 0 ? EDGE_CELL : initialRightTiles[x - 1, y];
+                    uL = x == 0 || (y == chunkSize - 1) ? EDGE_CELL : initialRightTiles[x - 1, y + 1];
+                    dL = y == 0 || x == 0 ? EDGE_CELL : initialRightTiles[x - 1, y - 1];
                 }
 
-                u = (y == chunkSize - 1) ? E : initialRightTiles[x, y + 1];
-                uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialRightTiles[x + 1, y + 1];
-                r = (x == chunkSize - 1) ? E : initialRightTiles[x + 1, y];
-                dR = (x == chunkSize - 1) || y == 0 ? E : initialRightTiles[x + 1, y - 1];
-                d = y == 0 ? E : initialRightTiles[x, y - 1];
+                u = (y == chunkSize - 1) ? EDGE_CELL : initialRightTiles[x, y + 1];
+                uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? EDGE_CELL : initialRightTiles[x + 1, y + 1];
+                r = (x == chunkSize - 1) ? EDGE_CELL : initialRightTiles[x + 1, y];
+                dR = (x == chunkSize - 1) || y == 0 ? EDGE_CELL : initialRightTiles[x + 1, y - 1];
+                d = y == 0 ? EDGE_CELL : initialRightTiles[x, y - 1];
 
                 t += Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
 
                 if (initialRightTiles[x, y])
                 {
-                    iterativeRightTiles[x, y] = !(t < D);
+                    iterativeRightTiles[x, y] = !(t < DEATH_RATE);
                 }
                 else
                 {
-                    iterativeRightTiles[x, y] = t > B;
+                    iterativeRightTiles[x, y] = t > BIRTH_RATE;
                 }
             }
         }
@@ -512,26 +503,26 @@ public class TilesGenerator : MonoBehaviour
                 }
                 else
                 {
-                    uL = x == 0 || (y == chunkSize - 1) ? E : initialDownTiles[x - 1, y + 1];
-                    u = (y == chunkSize - 1) ? E : initialDownTiles[x, y + 1];
-                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialDownTiles[x + 1, y + 1];
+                    uL = x == 0 || (y == chunkSize - 1) ? EDGE_CELL : initialDownTiles[x - 1, y + 1];
+                    u = (y == chunkSize - 1) ? EDGE_CELL : initialDownTiles[x, y + 1];
+                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? EDGE_CELL : initialDownTiles[x + 1, y + 1];
                 }
 
-                l = x == 0 ? E : initialDownTiles[x - 1, y];
-                r = (x == chunkSize - 1) ? E : initialDownTiles[x + 1, y];
-                dR = (x == chunkSize - 1) || y == 0 ? E : initialDownTiles[x + 1, y - 1];
-                d = y == 0 ? E : initialDownTiles[x, y - 1];
-                dL = y == 0 || x == 0 ? E : initialDownTiles[x - 1, y - 1];
+                l = x == 0 ? EDGE_CELL : initialDownTiles[x - 1, y];
+                r = (x == chunkSize - 1) ? EDGE_CELL : initialDownTiles[x + 1, y];
+                dR = (x == chunkSize - 1) || y == 0 ? EDGE_CELL : initialDownTiles[x + 1, y - 1];
+                d = y == 0 ? EDGE_CELL : initialDownTiles[x, y - 1];
+                dL = y == 0 || x == 0 ? EDGE_CELL : initialDownTiles[x - 1, y - 1];
 
                 t += Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
 
                 if (initialDownTiles[x, y])
                 {
-                    iterativeDownTiles[x, y] = !(t < D);
+                    iterativeDownTiles[x, y] = !(t < DEATH_RATE);
                 }
                 else
                 {
-                    iterativeDownTiles[x, y] = t > B;
+                    iterativeDownTiles[x, y] = t > BIRTH_RATE;
                 }
             }
         }

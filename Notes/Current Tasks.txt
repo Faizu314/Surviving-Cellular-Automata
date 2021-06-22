@@ -1,3 +1,15 @@
+Unexplored Fog {
+	Use camera stencil buffer
+	First the unexplored tiles will be used to make 2D mesh which will use StencilWrite material
+	This mesh will be rendered FIRST (Using queue) and stencil buffer will be updated to 1
+	Then the remaining screen will be rendered with fog where stencil != 1
+	REF: Field of view visualisation (E03: stencil shader)
+}
+
+Floor Tiles {
+	Procedurally generate them like the walls so they come up in the depth matrix
+}
+
 Tiles Pooling {
 	currently still pooling around 1k gameObjects... :/
 }
@@ -5,10 +17,6 @@ Tiles Pooling {
 Continuous Tile Values {
 	Automata template should be a matrix of rules
 	use float instead of bool (Refer to Notes Photo)
-}
-
-Map Data Saver {
-	There should only be one dictionary and different chunks can have different number of stages
 }
 
 A* Optimizations {

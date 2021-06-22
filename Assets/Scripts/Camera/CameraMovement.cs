@@ -4,6 +4,7 @@ using UnityEngine;
 
 public class CameraMovement : MonoBehaviour
 {
+    [Header("Camera")]
     public Transform player;
     public bool useLateUpdate;
     [Range(0.01f, 1f)] public float movementSmoothness;
@@ -12,7 +13,14 @@ public class CameraMovement : MonoBehaviour
 
     private float rotationDestination = 0f;
 
-    void FixedUpdate()
+    //private void Start()
+    //{
+    //    Quaternion rotation = Quaternion.identity;
+    //    rotation.
+    //    transform.SetPositionAndRotation(Vector3.forward * -10, )
+    //}
+
+    private void FixedUpdate()
     {
         if (!useLateUpdate)
         {

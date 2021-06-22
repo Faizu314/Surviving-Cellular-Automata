@@ -7,7 +7,7 @@ public class EndlessCavern : MonoBehaviour
     public static int CHUNK_SIZE;
     public static int SEED;
     public static int RENDER_WINDOW_WIDTH = 13;
-    public static int RENDER_WINDOW_HEIGHT = 11;
+    public static int RENDER_WINDOW_HEIGHT = 13;
 
     [SerializeField] private Transform observer;
 
@@ -22,16 +22,9 @@ public class EndlessCavern : MonoBehaviour
     private TilesGenerator tilesGenerator;
     private ProceduralPrefabs proceduralPrefabs;
 
-    private void Start()
+
+    private void LoadCavernData()
     {
-        tilesGenerator = gameObject.GetComponent<TilesGenerator>();
-        proceduralPrefabs = gameObject.GetComponent<ProceduralPrefabs>();
-        previousObserverPos = observer.position + Vector3.one * 4;
-
-        //orthographicSize * 2 * (1 + (sin(angleOfIncident))^2) = height of screen in world units.
-        //height of screen in world units * aspectRatio = width of screen in world units.
-        //Use this to calculate RENDER_WINDOW dimensions at startup.
-
         using (StreamReader reader = new StreamReader("Assets/Preferences/Cavern_Config.txt"))
         {
             string line;
@@ -42,25 +35,53 @@ public class EndlessCavern : MonoBehaviour
             reader.Close();
         }
     }
+    private void LoadRenderWindowDimensions()
+    {
+        //orthographicSize * 2 * (1 + (sin(angleOfIncident))^2) = height of screen in world units.
+        //height of screen in world units * aspectRatio = width of screen in world units.
+        //Use this to calculate RENDER_WINDOW dimensions at startup.
+    }
+    private void Start()
+    {
+        tilesGenerator = gameObject.GetComponent<TilesGenerator>();
+        proceduralPrefabs = gameObject.GetComponent<ProceduralPrefabs>();
+        previousObserverPos = observer.position + Vector3.one * 4;
+
+        LoadRenderWindowDimensions();
+        LoadCavernData();
+    }
+
+    private Vector2 WorldToGridPosition(Vector3 coordinates)
+    {
+        int observerGridX = ((int)coordinates.x / CHUNK_SIZE) - (coordinates.x < 0 ? 1 : 0);
+        int observerGridY = ((int)coordinates.y / CHUNK_SIZE) - (coordinates.y < 0 ? 1 : 0);
+        return new Vector2(observerGridX, observerGridY);
+    }
+    private Vector3 GridToWorldPosition(Vector2 coordinates)
+    {
+        float chunkPosX = (coordinates.x + 0.5f) * CHUNK_SIZE;
+        float chunkPosY = (coordinates.y + 0.5f) * CHUNK_SIZE;
+        return new Vector3(chunkPosX, chunkPosY);
+    }
 
     private void Update()
     {
         if (Vector2.SqrMagnitude(previousObserverPos - observer.position) < 0.5f)
             return;
         previousObserverPos = observer.position;
-        int observerGridX = ((int)observer.position.x / CHUNK_SIZE) - (observer.position.x < 0 ? 1 : 0);
-        int observerGridY = ((int)observer.position.y / CHUNK_SIZE) - (observer.position.y < 0 ? 1 : 0);
-        Vector2 observerGridPos = new Vector2(observerGridX, observerGridY);
+        UpdateNearbyChunks();
+    }
+
+    private void UpdateNearbyChunks()
+    {
+        Vector2 observerGridPos = WorldToGridPosition(observer.position);
 
         for (int yOffset = maxRange; yOffset >= -maxRange; yOffset--)
         {
             for (int xOffset = maxRange; xOffset >= -maxRange; xOffset--)
             {
-                Vector2 currentChunkGridPos = new Vector2(observerGridPos.x + xOffset, observerGridPos.y + yOffset);
-
-                float currentChunkPosX = (currentChunkGridPos.x + 0.5f) * CHUNK_SIZE;
-                float currentChunkPosY = (currentChunkGridPos.y + 0.5f) * CHUNK_SIZE;
-                Vector3 currentChunkPos = new Vector3(currentChunkPosX, currentChunkPosY);
+                Vector2 currentChunkGridPos = observerGridPos + new Vector2(xOffset, yOffset);
+                Vector3 currentChunkPos = GridToWorldPosition(currentChunkGridPos);
 
                 Bounds currentChunkPerimeter = new Bounds(currentChunkPos, Vector2.one * CHUNK_SIZE);
                 float currentChunkMinSqrDistance = currentChunkPerimeter.SqrDistance(observer.position);
@@ -75,7 +96,7 @@ public class EndlessCavern : MonoBehaviour
                     if (currentChunkMinSqrDistance < Mathf.Pow(progressThresholds[i].distance, 2))
                     {
                         nearbyChunks[currentChunkGridPos].ObtainStage(progressThresholds[i].stage);
-                        if (i == 3)
+                        if (i == progressThresholds.Count - 1)
                         {
                             if (nearbyChunks[currentChunkGridPos].tilesPrepared)
                                 nearbyChunks[currentChunkGridPos].Update(observer.position);
@@ -115,6 +136,12 @@ public class EndlessCavern : MonoBehaviour
             public int wallPrefabType;
             public int wallRotation;
         }
+        private struct WindowBounds
+        {
+            public int minX, maxX;
+            public int minY, maxY;
+            public int winXOffset, winYOffset;
+        }
 
         public MapChunk(Vector2 chunkPos, TilesGenerator tilesGenerator, ProceduralPrefabs proceduralPrefabs)
         {
@@ -134,8 +161,11 @@ public class EndlessCavern : MonoBehaviour
 
             prefabs = proceduralPrefabs.GetPackageSubscription();
         }
-        public void Update(Vector3 observerPos)
+
+        private WindowBounds GetWindowIntersectionBounds(Vector3 observerPos)
         {
+            WindowBounds bounds = new WindowBounds();
+
             int windowWidth = RENDER_WINDOW_WIDTH / 2;
             int windowHeight = RENDER_WINDOW_HEIGHT / 2;
             int obsX = (int)observerPos.x - 1;
@@ -144,30 +174,44 @@ public class EndlessCavern : MonoBehaviour
             int winX = obsX - windowWidth;
             int winY = obsY - windowHeight;
 
-            int minX = Mathf.Max(obsX - windowWidth, chunkX * chunkSize);
-            int maxX = Mathf.Min(obsX + windowWidth, chunkX * chunkSize + chunkSize - 1);
-            int minY = Mathf.Max(obsY - windowHeight, chunkY * chunkSize);
-            int maxY = Mathf.Min(obsY + windowHeight, chunkY * chunkSize + chunkSize - 1);
-            int winXOffset = minX - winX;
-            int winYOffset = minY - winY;
-            if (maxX >= minX && maxY >= minY)
-            {
-                minX = ((minX % chunkSize) + chunkSize) % chunkSize;
-                maxX = ((maxX % chunkSize) + chunkSize) % chunkSize;
-                minY = ((minY % chunkSize) + chunkSize) % chunkSize;
-                maxY = ((maxY % chunkSize) + chunkSize) % chunkSize;
-                FollowPlayer(minX, maxX, minY, maxY, winXOffset, winYOffset);
-            }
+            bounds.minX = Mathf.Max(obsX - windowWidth, chunkX * chunkSize);
+            bounds.maxX = Mathf.Min(obsX + windowWidth, chunkX * chunkSize + chunkSize - 1);
+            bounds.minY = Mathf.Max(obsY - windowHeight, chunkY * chunkSize);
+            bounds.maxY = Mathf.Min(obsY + windowHeight, chunkY * chunkSize + chunkSize - 1);
+            bounds.winXOffset = bounds.minX - winX;
+            bounds.winYOffset = bounds.minY - winY;
 
+            return bounds;
+        }
+        private bool IsWindowBoundsValid(WindowBounds bounds)
+        {
+            return (bounds.maxX >= bounds.minX && bounds.maxY >= bounds.minY);
+        }
+        private void ToLocalChunkCoordinates(ref WindowBounds bounds)
+        {
+            bounds.minX = ((bounds.minX % chunkSize) + chunkSize) % chunkSize;
+            bounds.maxX = ((bounds.maxX % chunkSize) + chunkSize) % chunkSize;
+            bounds.minY = ((bounds.minY % chunkSize) + chunkSize) % chunkSize;
+            bounds.maxY = ((bounds.maxY % chunkSize) + chunkSize) % chunkSize;
+        }
+        public void Update(Vector3 observerPos)
+        {
+            WindowBounds windowIntersection = GetWindowIntersectionBounds(observerPos);
+            if (IsWindowBoundsValid(windowIntersection))
+            {
+                ToLocalChunkCoordinates(ref windowIntersection);
+                // Send these bounds to Exploration Saver
+                FollowPlayer(windowIntersection);
+            }
             ObtainNeighbors();
         }
-        private void FollowPlayer(int minX, int maxX, int minY, int maxY, int winXOffset, int winYOffset)
+        private void FollowPlayer(WindowBounds bounds)
         {
             Vector3 basePosition = Vector3.zero, midCell = Vector3.zero, axis = Vector3.back;
 
-            for (int x = minX; x <= maxX; x++)
+            for (int x = bounds.minX; x <= bounds.maxX; x++)
             {
-                for (int y = minY; y <= maxY; y++)
+                for (int y = bounds.minY; y <= bounds.maxY; y++)
                 {
                     if (marchingSquares[x, y].floorPrefabType == -1)
                         continue;
@@ -177,16 +221,19 @@ public class EndlessCavern : MonoBehaviour
                     midCell.x = basePosition.x + cellWidth / 2f;
                     midCell.y = basePosition.y + cellHeight / 2f;
 
-                    prefabs[marchingSquares[x, y].floorPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                    int windowX = bounds.winXOffset + x - bounds.minX;
+                    int windowY = bounds.winYOffset + y - bounds.minY;
+
+                    prefabs[marchingSquares[x, y].floorPrefabType][windowX, windowY].
                         transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                    prefabs[marchingSquares[x, y].floorPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                    prefabs[marchingSquares[x, y].floorPrefabType][windowX, windowY].
                         transform.RotateAround(midCell, axis, 90f * marchingSquares[x, y].floorRotation);
 
                     if (marchingSquares[x, y].wallPrefabType != -1)
                     {
-                        prefabs[marchingSquares[x, y].wallPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                        prefabs[marchingSquares[x, y].wallPrefabType][windowX, windowY].
                             transform.SetPositionAndRotation(basePosition, Quaternion.identity);
-                        prefabs[marchingSquares[x, y].wallPrefabType][winXOffset + x - minX, winYOffset + y - minY].
+                        prefabs[marchingSquares[x, y].wallPrefabType][windowX, windowY].
                             transform.RotateAround(midCell, axis, 90f * marchingSquares[x, y].wallRotation);
                     }
                 }
@@ -200,30 +247,30 @@ public class EndlessCavern : MonoBehaviour
                     return;
                 if (!upBoundary)
                 {
-                    bool[,] upChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY + 1));
+                    bool[,] upChunk = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY + 1, 2));
                     if (upChunk != null)
                     {
-                        UpperCells(upChunk);
+                        PrepareUpperCells(upChunk);
                         upBoundary = true;
                     }
                 }
                 if (!rightBoundary)
                 {
-                    bool[,] rightChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX + 1, chunkY));
+                    bool[,] rightChunk = MapDataSaver.instance.GetTiles(new Vector3(chunkX + 1, chunkY, 2));
                     if (rightChunk != null)
                     {
-                        RightCells(rightChunk);
+                        PrepareRightCells(rightChunk);
                         rightBoundary = true;
                     }
                 }
                 if (!upRightCell && rightBoundary && upBoundary)
                 {
-                    bool[,] upRightChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX + 1, chunkY + 1));
-                    bool[,] rightChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX + 1, chunkY));
-                    bool[,] upChunk = MapDataSaver.instance.GetCorrectedTiles(new Vector2(chunkX, chunkY + 1));
+                    bool[,] upRightChunk = MapDataSaver.instance.GetTiles(new Vector3(chunkX + 1, chunkY + 1, 2));
+                    bool[,] rightChunk = MapDataSaver.instance.GetTiles(new Vector3(chunkX + 1, chunkY, 2));
+                    bool[,] upChunk = MapDataSaver.instance.GetTiles(new Vector3(chunkX, chunkY + 1, 2));
                     if (upRightChunk != null)
                     {
-                        UpRightCell(upRightChunk[0, 0], upChunk[chunkSize - 1, 0], rightChunk[0, chunkSize - 1]);
+                        PrepareUpRightCell(upRightChunk[0, 0], upChunk[chunkSize - 1, 0], rightChunk[0, chunkSize - 1]);
                         upRightCell = true;
                     }
                 }
@@ -244,12 +291,12 @@ public class EndlessCavern : MonoBehaviour
                 {
                     tilesPrepared = true;
                     nextStage++;
-                    MidCells();
+                    PrepareMidCells();
                 }
             }
             ObtainNeighbors();
         }
-        private void MidCells()
+        private void PrepareMidCells()
         {
             for (int y = 0; y < chunkSize - 1; y++)
             {
@@ -273,7 +320,7 @@ public class EndlessCavern : MonoBehaviour
                 }
             }
         }
-        private void UpperCells(bool[,] upChunk)
+        private void PrepareUpperCells(bool[,] upChunk)
         {
             int y = chunkSize - 1;
             for (int x = 0; x < chunkSize - 1; x++)
@@ -296,7 +343,7 @@ public class EndlessCavern : MonoBehaviour
             }
 
         }
-        private void RightCells(bool[,] rightChunk)
+        private void PrepareRightCells(bool[,] rightChunk)
         {
             int x = chunkSize - 1;
             for (int y = 0; y < chunkSize - 1; y++)
@@ -318,7 +365,7 @@ public class EndlessCavern : MonoBehaviour
                 MarchingSquareFloor(15 - binaryToDecimal, x, y);
             }
         }
-        private void UpRightCell(bool cornerTile, bool upTile, bool rightTile)
+        private void PrepareUpRightCell(bool cornerTile, bool upTile, bool rightTile)
         {
             int x = chunkSize - 1;
             int y = chunkSize - 1;
@@ -334,7 +381,7 @@ public class EndlessCavern : MonoBehaviour
                 return;
             }
             MarchingSquareWall(binaryToDecimal, x, y);
-            MarchingSquareFloor(binaryToDecimal, x, y);
+            MarchingSquareFloor(15 - binaryToDecimal, x, y);
         }
 
         private void MarchingSquareWall(int code, int x, int y)

@@ -5,14 +5,6 @@ true
 1
 
 
-temp:
-fixed a bug in pool manager
-fixed a bug in tiles Generator
-tiles generator and endless cavern can now change templates without rebuilding
-todo:
-continuous automata
-pooling space optimization
-
 ####################### Template ####################
 
 P
