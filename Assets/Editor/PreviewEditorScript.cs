@@ -12,6 +12,10 @@ public class PreviewEditorScript : Editor
         {
             pr.Preview();
         }
+        else if (GUILayout.Button("Populate Rules"))
+        {
+            pr.PopulateRules();
+        }
         else if (GUILayout.Button("Test"))
         {
             pr.Preview();

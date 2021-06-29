@@ -63,6 +63,25 @@ public class EndlessCavern : MonoBehaviour
         float chunkPosY = (coordinates.y + 0.5f) * CHUNK_SIZE;
         return new Vector3(chunkPosX, chunkPosY);
     }
+    private float GetMinChunkToPlayerDist(Vector2 chunkGridPos)
+    {
+        Vector3 currentChunkPos = GridToWorldPosition(chunkGridPos);
+        Bounds currentChunkPerimeter = new Bounds(currentChunkPos, Vector2.one * CHUNK_SIZE);
+        return currentChunkPerimeter.SqrDistance(observer.position);
+    }
+    private void UpdateChunk(Vector2 chunkGridPos, float minSqrDistFromPlayer)
+    {
+        for (int i = progressThresholds.Count - 1; i >= 0; i--)
+        {
+            if (minSqrDistFromPlayer < Mathf.Pow(progressThresholds[i].distance, 2))
+            {
+                nearbyChunks[chunkGridPos].PrepareStage(progressThresholds[i].stage);
+                if (i == progressThresholds.Count - 1)
+                    nearbyChunks[chunkGridPos].RenderIfPrepared(observer.position);
+                return;
+            }
+        }
+    }
 
     private void Update()
     {
@@ -81,34 +100,11 @@ public class EndlessCavern : MonoBehaviour
             for (int xOffset = maxRange; xOffset >= -maxRange; xOffset--)
             {
                 Vector2 currentChunkGridPos = observerGridPos + new Vector2(xOffset, yOffset);
-                Vector3 currentChunkPos = GridToWorldPosition(currentChunkGridPos);
-
-                Bounds currentChunkPerimeter = new Bounds(currentChunkPos, Vector2.one * CHUNK_SIZE);
-                float currentChunkMinSqrDistance = currentChunkPerimeter.SqrDistance(observer.position);
-
                 if (!nearbyChunks.ContainsKey(currentChunkGridPos))
-                {
                     nearbyChunks.Add(currentChunkGridPos, new MapChunk(currentChunkGridPos, tilesGenerator, proceduralPrefabs));
-                }
-                bool inRenderRange = false;
-                for (int i = progressThresholds.Count - 1; i >= 0; i--)
-                {
-                    if (currentChunkMinSqrDistance < Mathf.Pow(progressThresholds[i].distance, 2))
-                    {
-                        nearbyChunks[currentChunkGridPos].ObtainStage(progressThresholds[i].stage);
-                        if (i == progressThresholds.Count - 1)
-                        {
-                            if (nearbyChunks[currentChunkGridPos].tilesPrepared)
-                                nearbyChunks[currentChunkGridPos].Update(observer.position);
-                        }
-                        inRenderRange = true;
-                        break;
-                    }
-                }
-                if (!inRenderRange)
-                {
-                    //nearbyChunks[currentChunkGridPos].Deactivate();
-                }
+
+                float currentChunkMinSqrDistance = GetMinChunkToPlayerDist(currentChunkGridPos);
+                UpdateChunk(currentChunkGridPos, currentChunkMinSqrDistance);
             }
         }
     }
@@ -125,12 +121,12 @@ public class EndlessCavern : MonoBehaviour
         private bool upBoundary, rightBoundary, upRightCell;
 
         private GameObject[][,] prefabs;
-        private PrefabData[,] marchingSquares;
+        private MarchingSquareData[,] marchingSquares;
         private const int FINAL_STAGE = 3;
         private int nextStage, goalStage;
         public bool tilesPrepared;
 
-        private struct PrefabData {
+        private struct MarchingSquareData {
             public int floorPrefabType;
             public int floorRotation;
             public int wallPrefabType;
@@ -154,7 +150,7 @@ public class EndlessCavern : MonoBehaviour
             cellHeight = ProceduralPrefabs.CELL_HEIGHT;
             upBoundary = rightBoundary = upRightCell = false;
 
-            marchingSquares = new PrefabData[chunkSize, chunkSize];
+            marchingSquares = new MarchingSquareData[chunkSize, chunkSize];
             nextStage = 0;
             goalStage = -1;
             tilesPrepared = false;
@@ -194,8 +190,10 @@ public class EndlessCavern : MonoBehaviour
             bounds.minY = ((bounds.minY % chunkSize) + chunkSize) % chunkSize;
             bounds.maxY = ((bounds.maxY % chunkSize) + chunkSize) % chunkSize;
         }
-        public void Update(Vector3 observerPos)
+        public void RenderIfPrepared(Vector3 observerPos)
         {
+            if (!tilesPrepared)
+                return;
             WindowBounds windowIntersection = GetWindowIntersectionBounds(observerPos);
             if (IsWindowBoundsValid(windowIntersection))
             {
@@ -276,7 +274,7 @@ public class EndlessCavern : MonoBehaviour
                 }
             }
         }
-        public void ObtainStage(int stage)
+        public void PrepareStage(int stage)
         {
             //This logic will change after the implementation of threading.
             //No while loop will be required, the next stage tiles will be requested in OnTilesRecieved function.
@@ -303,18 +301,7 @@ public class EndlessCavern : MonoBehaviour
                 for (int x = 0; x < chunkSize - 1; x++)
                 {
                     int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (tiles[x + 1, y] ? 1 : 0) * 4 + (tiles[x + 1, y + 1] ? 1 : 0) * 2 + (tiles[x, y + 1] ? 1 : 0);
-                    if (binaryToDecimal == 0)
-                    {
-                        marchingSquares[x, y].floorPrefabType = -1;
-                        continue;
-                    }
-                    if (binaryToDecimal == 15)
-                    {
-                        marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
-                        marchingSquares[x, y].floorRotation = 0;
-                        marchingSquares[x, y].wallPrefabType = -1;
-                        continue;
-                    }
+
                     MarchingSquareWall(binaryToDecimal, x, y);
                     MarchingSquareFloor(15 - binaryToDecimal, x, y);  
                 }
@@ -326,18 +313,7 @@ public class EndlessCavern : MonoBehaviour
             for (int x = 0; x < chunkSize - 1; x++)
             {
                 int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (tiles[x + 1, y] ? 1 : 0) * 4 + (upChunk[x + 1, 0] ? 1 : 0) * 2 + (upChunk[x, 0] ? 1 : 0);
-                if (binaryToDecimal == 0)
-                {
-                    marchingSquares[x, y].floorPrefabType = -1;
-                    continue;
-                }
-                if (binaryToDecimal == 15)
-                {
-                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
-                    marchingSquares[x, y].floorRotation = 0;
-                    marchingSquares[x, y].wallPrefabType = -1;
-                    continue;
-                }
+
                 MarchingSquareWall(binaryToDecimal, x, y);
                 MarchingSquareFloor(15 - binaryToDecimal, x, y);
             }
@@ -349,18 +325,7 @@ public class EndlessCavern : MonoBehaviour
             for (int y = 0; y < chunkSize - 1; y++)
             {
                 int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (rightChunk[0, y] ? 1 : 0) * 4 + (rightChunk[0, y + 1] ? 1 : 0) * 2 + (tiles[x, y + 1] ? 1 : 0);
-                if (binaryToDecimal == 0)
-                {
-                    marchingSquares[x, y].floorPrefabType = -1;
-                    continue;
-                }
-                if (binaryToDecimal == 15)
-                {
-                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
-                    marchingSquares[x, y].floorRotation = 0;
-                    marchingSquares[x, y].wallPrefabType = -1;
-                    continue;
-                }
+
                 MarchingSquareWall(binaryToDecimal, x, y);
                 MarchingSquareFloor(15 - binaryToDecimal, x, y);
             }
@@ -371,15 +336,7 @@ public class EndlessCavern : MonoBehaviour
             int y = chunkSize - 1;
 
             int binaryToDecimal = (tiles[x, y] ? 1 : 0) * 8 + (rightTile ? 1 : 0) * 4 + (cornerTile ? 1 : 0) * 2 + (upTile ? 1 : 0);
-            if (binaryToDecimal == 0)
-                return;
-            if (binaryToDecimal == 15)
-            {
-                marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
-                marchingSquares[x, y].floorRotation = 0;
-                marchingSquares[x, y].wallPrefabType = -1;
-                return;
-            }
+
             MarchingSquareWall(binaryToDecimal, x, y);
             MarchingSquareFloor(15 - binaryToDecimal, x, y);
         }
@@ -388,6 +345,9 @@ public class EndlessCavern : MonoBehaviour
         {
             switch (code)
             {
+                case 0:
+                    marchingSquares[x, y].wallPrefabType = -1;
+                    break;
                 case 1:
                     marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.cornerWall;
                     marchingSquares[x, y].wallRotation = 3;
@@ -443,6 +403,9 @@ public class EndlessCavern : MonoBehaviour
                 case 14:
                     marchingSquares[x, y].wallPrefabType = (int)ProceduralPrefabs.PrefabType.triangleWall;
                     marchingSquares[x, y].wallRotation = 1;
+                    break;
+                case 15:
+                    marchingSquares[x, y].wallPrefabType = -1;
                     break;
             }
         }
@@ -450,6 +413,10 @@ public class EndlessCavern : MonoBehaviour
         {
             switch (code)
             {
+                case 0:
+                    marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.fullFloor;
+                    marchingSquares[x, y].floorRotation = 0;
+                    break;
                 case 1:
                     marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.cornerFloor;
                     marchingSquares[x, y].floorRotation = 3;
@@ -506,9 +473,13 @@ public class EndlessCavern : MonoBehaviour
                     marchingSquares[x, y].floorPrefabType = (int)ProceduralPrefabs.PrefabType.triangleFloor;
                     marchingSquares[x, y].floorRotation = 1;
                     break;
+                case 15:
+                    marchingSquares[x, y].floorPrefabType = -1;
+                    break;
             }
         }
     }
+
 
     [System.Serializable]
     public struct ProgressThreshold

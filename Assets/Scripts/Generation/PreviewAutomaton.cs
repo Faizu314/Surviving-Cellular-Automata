@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 public class PreviewAutomaton : MonoBehaviour
 {
@@ -10,7 +11,7 @@ public class PreviewAutomaton : MonoBehaviour
     [Range(0, 5)] public int chunkX;
     [Range(0, 5)] public int chunkY;
     public enum Test { correction, noCorrection };
-    public enum Mode { CPU, GPU };
+    public enum Mode { CPU_Discrete, CPU_Continuous, GPU };
     public Test test;
     public Mode mode;
     public int chunkSize;
@@ -22,15 +23,19 @@ public class PreviewAutomaton : MonoBehaviour
     public int seed;
     public float P;
     public bool E;
-    public int B;
-    public int D;
+    [Range(0, 8)] public float B;
+    [Range(0, 8)] public float D;
     public int ITERATIONS;
+
+    [Space(10)]
+    [Header("Continuous Automation Configuration")]
+    [Range(0,1)] public List<float>rulesMatrix = new List<float>();
 
     private bool[,] tiles;
     private GameObject chunkObject;
     private GameObject[,] cells;
     public int[,] debugFills;
-    public List<int> colors;
+    [HideInInspector] public List<int> colors;
 
     public void Preview()
     {
@@ -55,10 +60,12 @@ public class PreviewAutomaton : MonoBehaviour
                 chunkObject = new GameObject("Chunk: " + currentChunkX + ", " + currentChunkY);
                 chunkObject.transform.parent = transform;
 
-                if (mode == Mode.CPU)
+                if (mode == Mode.CPU_Discrete || mode == Mode.CPU_Continuous)
                     tiles = SimulateTilesGeneration(currentChunkX, currentChunkY);
                 else if (mode == Mode.GPU)
                     tiles = GenerateTilesOnGPU(currentChunkX, currentChunkY);
+
+                float floor_count = 0;
 
                 for (int y = 0; y < chunkSize; y++)
                 {
@@ -68,9 +75,40 @@ public class PreviewAutomaton : MonoBehaviour
                         cells[x, y].name = "Cell: " + x + ", " + y;
                         cells[x, y].transform.position = new Vector2((currentChunkX * chunkSize + x + 0.5f) * cellWidth, (currentChunkY * chunkSize + y + 0.5f) * cellHeight);
                         cells[x, y].transform.parent = chunkObject.transform;
+                        floor_count += tiles[x, y] ? 1f : 0f;
                     }
                 }
+
+                Debug.Log("Floor to Wall ratio = " + floor_count / (float)(chunkSize * chunkSize - floor_count));
             }
+        }
+    }
+
+    public void PopulateRules()
+    {
+        rulesMatrix.Clear();
+        for (int i = 0; i < 8; i++)
+        {
+            rulesMatrix.Add(UnityEngine.Random.value);
+        }
+    }
+
+    float GetValue(bool l, bool uL, bool u, bool uR, bool r, bool dR, bool d, bool dL)
+    {
+        if (mode == Mode.CPU_Discrete)
+        {
+            return Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
+        }
+        else if (mode == Mode.CPU_Continuous)
+        {
+            float value = (l ? rulesMatrix[0] : 0) + (uL ? rulesMatrix[1] : 0) + (u ? rulesMatrix[2] : 0) + (uR ? rulesMatrix[3] : 0)
+                + (r ? rulesMatrix[4] : 0) + (dR ? rulesMatrix[5] : 0) + (d ? rulesMatrix[6] : 0) + (dL ? rulesMatrix[7] : 0);
+            return value / rulesMatrix.Sum();
+        }
+        else
+        {
+            Debug.Log("Mode is invalid for Previewing chunk");
+            return 0;
         }
     }
 
@@ -103,7 +141,7 @@ public class PreviewAutomaton : MonoBehaviour
             {
                 for (int x = 0; x < chunkSize; x++)
                 {
-                    int t = 0;
+                    float code;
                     bool l, uL, u, uR, r, dR, d, dL;
                     l = x == 0 ? E : initialTiles[x - 1, y];
                     uL = x == 0 || (y == chunkSize - 1) ? E : initialTiles[x - 1, y + 1];
@@ -114,15 +152,27 @@ public class PreviewAutomaton : MonoBehaviour
                     d = y == 0 ? E : initialTiles[x, y - 1];
                     dL = y == 0 || x == 0 ? E : initialTiles[x - 1, y - 1];
 
-                    t += Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
+                    code = GetValue(l, uL, u, uR, r, dR, d, dL);
 
-                    if (initialTiles[x, y])
+                    float _D, _B;
+                    if (mode == Mode.CPU_Discrete)
                     {
-                        iterativeTiles[x, y] = !(t < D);
+                        _D = D;
+                        _B = B;
                     }
                     else
                     {
-                        iterativeTiles[x, y] = t > B;
+                        _D = (float)(D / 8f);
+                        _B = (float)(B / 8f);
+                    }
+
+                    if (initialTiles[x, y])
+                    {
+                        iterativeTiles[x, y] = !(code < _D);
+                    }
+                    else
+                    {
+                        iterativeTiles[x, y] = code > _B;
                     }
                 }
             }
@@ -157,8 +207,8 @@ public class PreviewAutomaton : MonoBehaviour
         ComputeBuffer curr = new ComputeBuffer(chunkSize * chunkSize, sizeof(float), ComputeBufferType.Default);
 
         shader.SetInt("E", E ? 1 : 0);
-        shader.SetInt("B", B);
-        shader.SetInt("D", D);
+        shader.SetInt("B", (int)B);
+        shader.SetInt("D", (int)D);
         shader.SetInt("chunkSize", chunkSize);
 
         int kernelHandle = shader.FindKernel("CSMain");
@@ -211,9 +261,6 @@ public class PreviewAutomaton : MonoBehaviour
         List<TestFiller> fillers = new List<TestFiller>();
         for (int i = 0; i < 3; i++)
             fillers.AddRange(FloodFillPartition(chunkMap, fillMap, blockMap, fillIds, i));
-
-        debugFills = blockMap;
-        colors = fillIds;
 
         for (int i = 1; i < 3; i++)
         {
