@@ -2,108 +2,185 @@ using System;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine.UI;
 
 public class PreviewAutomaton : MonoBehaviour
 {
-    public ComputeShader shader;
-    public GameObject floorPrefab;
-    public GameObject wallPrefab;
-    [Range(0, 5)] public int chunkX;
-    [Range(0, 5)] public int chunkY;
-    public enum Test { correction, noCorrection };
+    public RawImage image;
+    public RenderTexture mapDisplay;
+    public ComputeShader CAShader;
+    public ComputeShader projectorShader;
+    private const int textureSize = 128;
+
+    public enum CorrectionMode { On, Off };
     public enum Mode { CPU_Discrete, CPU_Continuous, GPU };
-    public Test test;
-    public Mode mode;
     public int chunkSize;
-    public float cellWidth, cellHeight;
-    public bool autoUpdate;
 
     [Space(10)]
     [Header("Automaton Configuration")]
+    public Mode mode;
+    public CorrectionMode correction;
     public int seed;
     public float P;
     public bool E;
     [Range(0, 8)] public float B;
     [Range(0, 8)] public float D;
     public int ITERATIONS;
+    [Range(0,1)] public List<float>rulesVector = new List<float>();
+
+    private Dictionary<Vector2Int, bool[,]> chunks = new Dictionary<Vector2Int, bool[,]>();
 
     [Space(10)]
-    [Header("Continuous Automation Configuration")]
-    [Range(0,1)] public List<float>rulesMatrix = new List<float>();
+    [Header("Display Settings")]
+    [Range(0f, 1f)] public float scrollSensitivity;
+    [Range(0f, 1f)] public float zoomSensitivity;
 
-    private bool[,] tiles;
-    private GameObject chunkObject;
-    private GameObject[,] cells;
-    public int[,] debugFills;
-    [HideInInspector] public List<int> colors;
+    public Vector2 mapOffset = new Vector2(-0.5f, -0.5f);
+    public float zoomLevel = 1f;
 
-    public void Preview()
+    public void RandomizeRules()
     {
-        if (transform.childCount != 0)
-        {
-            int childCount = transform.childCount;
-            for (int k = 0; k < childCount; k++)
-            {
-                DestroyImmediate(transform.GetChild(0).gameObject);
-            }
-        }
-
-        cells = new GameObject[chunkSize, chunkSize];
-
-        for (int i = 0; i < chunkY; i++)
-        {
-            for (int j = 0; j < chunkX; j++)
-            {
-                int currentChunkY = i;
-                int currentChunkX = j;
-
-                chunkObject = new GameObject("Chunk: " + currentChunkX + ", " + currentChunkY);
-                chunkObject.transform.parent = transform;
-
-                if (mode == Mode.CPU_Discrete || mode == Mode.CPU_Continuous)
-                    tiles = SimulateTilesGeneration(currentChunkX, currentChunkY);
-                else if (mode == Mode.GPU)
-                    tiles = GenerateTilesOnGPU(currentChunkX, currentChunkY);
-
-                float floor_count = 0;
-
-                for (int y = 0; y < chunkSize; y++)
-                {
-                    for (int x = 0; x < chunkSize; x++)
-                    {
-                        cells[x, y] = Instantiate(tiles[x, y] ? floorPrefab : wallPrefab);
-                        cells[x, y].name = "Cell: " + x + ", " + y;
-                        cells[x, y].transform.position = new Vector2((currentChunkX * chunkSize + x + 0.5f) * cellWidth, (currentChunkY * chunkSize + y + 0.5f) * cellHeight);
-                        cells[x, y].transform.parent = chunkObject.transform;
-                        floor_count += tiles[x, y] ? 1f : 0f;
-                    }
-                }
-
-                Debug.Log("Floor to Wall ratio = " + floor_count / (float)(chunkSize * chunkSize - floor_count));
-            }
-        }
-    }
-
-    public void PopulateRules()
-    {
-        rulesMatrix.Clear();
+        rulesVector.Clear();
         for (int i = 0; i < 8; i++)
         {
-            rulesMatrix.Add(UnityEngine.Random.value);
+            rulesVector.Add(UnityEngine.Random.value);
         }
     }
 
-    float GetValue(bool l, bool uL, bool u, bool uR, bool r, bool dR, bool d, bool dL)
+    public void ApplyRules()
+    {
+        chunks.Clear();
+    }
+
+    public void LoadChunks()
+    {
+        float tilesPerTexLen = textureSize / zoomLevel;
+        Vector2 floatChunkCoor = mapOffset * tilesPerTexLen / chunkSize;
+        Vector2Int downLeftChunkPos = new Vector2Int(Round(floatChunkCoor.x), Round(floatChunkCoor.y));
+        int chunksPerTexLen = Mathf.CeilToInt(tilesPerTexLen / chunkSize) + 1;
+        for (int i = 0; i < chunksPerTexLen; i++)
+        {
+            for (int j = 0; j < chunksPerTexLen; j++)
+            {
+                GenerateChunk(downLeftChunkPos.x + i, downLeftChunkPos.y + j);
+            }
+        }
+    }
+
+    public void Scroll(Vector2 direction)
+    {
+        mapOffset += scrollSensitivity * direction;
+    }
+    
+    public void Zoom(bool sign)
+    {
+        zoomLevel += sign ? zoomSensitivity : -zoomSensitivity;
+        if (zoomLevel < 0.001f)
+            zoomLevel = 0.001f;
+    }
+
+    public void _Reset()
+    {
+        mapOffset = Vector2.one * -0.5f;
+        zoomLevel = 1;
+    }
+
+    public void Draw()
+    {
+        mapDisplay = new RenderTexture(textureSize, textureSize, 1);
+        image.texture = mapDisplay;
+        mapDisplay.enableRandomWrite = true;
+        ComputeBuffer mapBuffer = new ComputeBuffer(chunkSize * chunkSize, sizeof(int));
+
+        foreach (KeyValuePair<Vector2Int, bool[,]> element in chunks)
+        {
+            Vector2 chunkPos = WorldToDisplayPosition(element.Key);
+            if (IsChunkOnDisplay(chunkPos))
+                DispatchShader(chunkPos, mapBuffer, element.Value);
+        }
+        mapBuffer.Dispose();
+    }
+
+
+
+    private void GenerateChunk(int chunkX, int chunkY)
+    {
+        bool[,] tiles = GetChunk(chunkX, chunkY);
+        if (tiles == null)
+        {
+            tiles = SimulateTilesGeneration(chunkX, chunkY);
+            //tiles = Test(chunkX, chunkY);
+            chunks[new Vector2Int(chunkX, chunkY)] = tiles;
+        }
+    }
+
+    private int Round(float value)
+    {
+        //return value > 0 ? Mathf.CeilToInt(value) : Mathf.FloorToInt(value);
+        return Mathf.FloorToInt(value);
+    }
+
+    private bool[,] GetChunk(int chunkX, int chunkY)
+    {
+        Vector2Int key = new Vector2Int(chunkX, chunkY);
+        if (chunks.ContainsKey(key))
+            return chunks[key];
+        else
+            return null;
+    }
+
+    private void DispatchShader(Vector2 chunkPos, ComputeBuffer mapBuffer, bool[,] map)
+    {
+        int kernelIndex = projectorShader.FindKernel("CSMain");
+        int[,] blittableMap = new int[chunkSize, chunkSize];
+        for (int i = 0; i < chunkSize; i++)
+        {
+            for (int j = 0; j < chunkSize; j++)
+            {
+                blittableMap[i, j] = map[i, j] ? 1 : 0;
+            }
+        }
+        mapBuffer.SetData(blittableMap);
+        projectorShader.SetTexture(kernelIndex, "Result", mapDisplay);
+        projectorShader.SetBuffer(kernelIndex, "chunkMap", mapBuffer);
+        projectorShader.SetVector("offset", chunkPos);
+        projectorShader.SetFloat("indexToUV", zoomLevel / mapDisplay.width);
+        projectorShader.SetInt("textureSize", textureSize);
+        projectorShader.Dispatch(kernelIndex, 4, 4, 1);
+    }
+
+    private bool IsChunkOnDisplay(Vector2 chunkDisplayPosition)
+    {
+        Bounds displayBound = new Bounds(Vector2.one * 0.5f, Vector2.one);
+        Vector2 chunkDim = new Vector2(chunkSize * zoomLevel / mapDisplay.width, chunkSize * zoomLevel / mapDisplay.height);
+        Bounds chunkBound = new Bounds(chunkDisplayPosition + (chunkDim / 2), chunkDim); 
+        return displayBound.Intersects(chunkBound);
+    }
+
+    private Vector2 WorldToDisplayPosition(Vector2Int chunkPosition)
+    {
+        Vector2 displayPos = Vector2.zero;
+        displayPos.x += (chunkPosition.x * chunkSize * zoomLevel) / mapDisplay.width;
+        displayPos.y += (chunkPosition.y * chunkSize * zoomLevel) / mapDisplay.height;
+        displayPos -= mapOffset;
+        return displayPos;
+    }
+
+
+    #region
+    //Generation Code
+    private float GetValue(bool l, bool uL, bool u, bool uR, bool r, bool dR, bool d, bool dL)
     {
         if (mode == Mode.CPU_Discrete)
         {
-            return Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
+            return Convert.ToInt32(l) + Convert.ToInt32(uL) + Convert.ToInt32(u) + Convert.ToInt32(uR) + 
+                Convert.ToInt32(r) + Convert.ToInt32(dR) + Convert.ToInt32(d) + Convert.ToInt32(dL);
         }
         else if (mode == Mode.CPU_Continuous)
         {
-            float value = (l ? rulesMatrix[0] : 0) + (uL ? rulesMatrix[1] : 0) + (u ? rulesMatrix[2] : 0) + (uR ? rulesMatrix[3] : 0)
-                + (r ? rulesMatrix[4] : 0) + (dR ? rulesMatrix[5] : 0) + (d ? rulesMatrix[6] : 0) + (dL ? rulesMatrix[7] : 0);
-            return value / rulesMatrix.Sum();
+            float value = (l ? rulesVector[0] : 0) + (uL ? rulesVector[1] : 0) + (u ? rulesVector[2] : 0) + (uR ? rulesVector[3] : 0)
+                + (r ? rulesVector[4] : 0) + (dR ? rulesVector[5] : 0) + (d ? rulesVector[6] : 0) + (dL ? rulesVector[7] : 0);
+            return value / rulesVector.Sum();
         }
         else
         {
@@ -112,12 +189,744 @@ public class PreviewAutomaton : MonoBehaviour
         }
     }
 
-    public bool[,] SimulateTilesGeneration(int currentChunkX, int currentChunkY)
+    private bool[,] SimulateTilesGeneration(int chunkX, int chunkY)
+    {
+        bool[,] initialMainTiles = GetInitialMap(chunkX, chunkY);
+        bool[,] initialUpTiles = GetInitialMap(chunkX, chunkY + 1);
+        bool[,] initialDownTiles = GetInitialMap(chunkX, chunkY - 1);
+        bool[,] initialLeftTiles = GetInitialMap(chunkX - 1, chunkY);
+        bool[,] initialRightTiles = GetInitialMap(chunkX + 1, chunkY);
+
+        bool[,] iterativeMainTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeUpTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeDownTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeLeftTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeRightTiles = new bool[chunkSize, chunkSize];
+        bool[,] temp;
+
+        if (ITERATIONS == 0)
+            return initialMainTiles;
+
+        float _D, _B;
+        if (mode == Mode.CPU_Discrete)
+        {
+            _D = D;
+            _B = B;
+        }
+        else
+        {
+            _D = (float)(D / 8f);
+            _B = (float)(B / 8f);
+        }
+
+        for (int i = 0; i < ITERATIONS; i++)
+        {
+            for (int y = 0; y < chunkSize; y++)
+            {
+                for (int x = 0; x < chunkSize; x++)
+                {
+                    float t = 0;
+                    bool l, uL, u, uR, r, dR, d, dL;
+
+                    if (y == 0)
+                    {
+                        dR = x == chunkSize - 1 ? initialRightTiles[0, chunkSize - 1] : initialMainTiles[x + 1, chunkSize - 1];
+                        d = initialMainTiles[x, chunkSize - 1];
+                        dL = x == 0 ? initialLeftTiles[chunkSize - 1, chunkSize - 1] : initialMainTiles[x - 1, chunkSize - 1];
+                    }
+                    else
+                    {
+                        dR = (x == chunkSize - 1) || y == 0 ? E : initialUpTiles[x + 1, y - 1];
+                        d = y == 0 ? E : initialUpTiles[x, y - 1];
+                        dL = y == 0 || x == 0 ? E : initialUpTiles[x - 1, y - 1];
+                    }
+
+                    l = x == 0 ? E : initialUpTiles[x - 1, y];
+                    uL = x == 0 || (y == chunkSize - 1) ? E : initialUpTiles[x - 1, y + 1];
+                    u = (y == chunkSize - 1) ? E : initialUpTiles[x, y + 1];
+                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialUpTiles[x + 1, y + 1];
+                    r = (x == chunkSize - 1) ? E : initialUpTiles[x + 1, y];
+
+                    t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                    if (initialUpTiles[x, y])
+                    {
+                        iterativeUpTiles[x, y] = !(t < _D);
+                    }
+                    else
+                    {
+                        iterativeUpTiles[x, y] = t > _B;
+                    }
+                }
+            }
+
+            for (int y = 0; y < chunkSize; y++)
+            {
+                for (int x = 0; x < chunkSize; x++)
+                {
+                    float t = 0;
+                    bool l, uL, u, uR, r, dR, d, dL;
+
+                    if (x == chunkSize - 1)
+                    {
+                        uR = y == chunkSize - 1 ? initialUpTiles[0, 0] : initialMainTiles[0, y + 1];
+                        r = initialMainTiles[0, y];
+                        dR = y == 0 ? initialDownTiles[0, chunkSize - 1] : initialMainTiles[0, y - 1];
+                    }
+                    else
+                    {
+                        uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialLeftTiles[x + 1, y + 1];
+                        r = (x == chunkSize - 1) ? E : initialLeftTiles[x + 1, y];
+                        dR = (x == chunkSize - 1) || y == 0 ? E : initialLeftTiles[x + 1, y - 1];
+                    }
+
+                    l = x == 0 ? E : initialLeftTiles[x - 1, y];
+                    uL = x == 0 || (y == chunkSize - 1) ? E : initialLeftTiles[x - 1, y + 1];
+                    u = (y == chunkSize - 1) ? E : initialLeftTiles[x, y + 1];
+                    d = y == 0 ? E : initialLeftTiles[x, y - 1];
+                    dL = y == 0 || x == 0 ? E : initialLeftTiles[x - 1, y - 1];
+
+                    t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                    if (initialLeftTiles[x, y])
+                    {
+                        iterativeLeftTiles[x, y] = !(t < _D);
+                    }
+                    else
+                    {
+                        iterativeLeftTiles[x, y] = t > _B;
+                    }
+                }
+            }
+
+            for (int y = 0; y < chunkSize; y++)
+            {
+                for (int x = 0; x < chunkSize; x++)
+                {
+                    float t = 0;
+                    bool l, uL, u, uR, r, dR, d, dL;
+
+                    if (x == 0 && y == 0)
+                    {
+                        dL = E;
+                        l = initialLeftTiles[chunkSize - 1, y];
+                        uL = initialLeftTiles[chunkSize - 1, y + 1];
+
+                        d = initialDownTiles[x, chunkSize - 1];
+                        dR = initialDownTiles[x + 1, chunkSize - 1];
+
+                        u = initialMainTiles[x, y + 1];
+                        uR = initialMainTiles[x + 1, y + 1];
+                        r = initialMainTiles[x + 1, y];
+                    }
+                    else if (x == chunkSize - 1 && y == chunkSize - 1)
+                    {
+                        uR = E;
+                        r = initialRightTiles[0, y];
+                        dR = initialRightTiles[0, y - 1];
+
+                        u = initialUpTiles[x, 0];
+                        uL = initialUpTiles[x - 1, 0];
+
+                        l = initialMainTiles[x - 1, y];
+                        d = initialMainTiles[x, y - 1];
+                        dL = initialMainTiles[x - 1, y - 1];
+                    }
+                    else if (x == 0 && y == chunkSize - 1)
+                    {
+                        uL = E;
+                        l = initialLeftTiles[chunkSize - 1, y];
+                        dL = initialLeftTiles[chunkSize - 1, y - 1];
+
+                        u = initialUpTiles[x, 0];
+                        uR = initialUpTiles[x + 1, 0];
+
+                        r = initialMainTiles[x + 1, y];
+                        dR = initialMainTiles[x + 1, y - 1];
+                        d = initialMainTiles[x, y - 1];
+                    }
+                    else if (x == chunkSize - 1 && y == 0)
+                    {
+                        dR = E;
+                        r = initialRightTiles[0, y];
+                        uR = initialRightTiles[0, y + 1];
+
+                        d = initialDownTiles[x, chunkSize - 1];
+                        dL = initialDownTiles[x - 1, chunkSize - 1];
+
+                        l = initialMainTiles[x - 1, y];
+                        uL = initialMainTiles[x - 1, y + 1];
+                        u = initialMainTiles[x, y + 1];
+                    }
+                    else if (x == 0)
+                    {
+                        l = initialLeftTiles[chunkSize - 1, y];
+                        uL = initialLeftTiles[chunkSize - 1, y + 1];
+                        dL = initialLeftTiles[chunkSize - 1, y + 1];
+
+                        u = initialMainTiles[x, y + 1];
+                        uR = initialMainTiles[x + 1, y + 1];
+                        r = initialMainTiles[x + 1, y];
+                        dR = initialMainTiles[x + 1, y - 1];
+                        d = initialMainTiles[x, y - 1];
+                    }
+                    else if (y == 0)
+                    {
+                        d = initialDownTiles[x, chunkSize - 1];
+                        dR = initialDownTiles[x + 1, chunkSize - 1];
+                        dL = initialDownTiles[x - 1, chunkSize - 1];
+
+                        l = initialMainTiles[x - 1, y];
+                        uL = initialMainTiles[x - 1, y + 1];
+                        u = initialMainTiles[x, y + 1];
+                        uR = initialMainTiles[x + 1, y + 1];
+                        r = initialMainTiles[x + 1, y];
+                    }
+                    else if (x == chunkSize - 1)
+                    {
+                        r = initialRightTiles[0, y];
+                        dR = initialRightTiles[0, y - 1];
+                        uR = initialRightTiles[0, y + 1];
+
+                        l = initialMainTiles[x - 1, y];
+                        uL = initialMainTiles[x - 1, y + 1];
+                        u = initialMainTiles[x, y + 1];
+                        d = initialMainTiles[x, y - 1];
+                        dL = initialMainTiles[x - 1, y - 1];
+                    }
+                    else if (y == chunkSize - 1)
+                    {
+                        u = initialUpTiles[x, 0];
+                        uL = initialUpTiles[x - 1, 0];
+                        uR = initialUpTiles[x + 1, 0];
+
+                        l = initialMainTiles[x - 1, y];
+                        r = initialMainTiles[x + 1, y];
+                        dR = initialMainTiles[x + 1, y - 1];
+                        d = initialMainTiles[x, y - 1];
+                        dL = initialMainTiles[x - 1, y - 1];
+                    }
+                    else
+                    {
+                        l = initialMainTiles[x - 1, y];
+                        uL = initialMainTiles[x - 1, y + 1];
+                        u = initialMainTiles[x, y + 1];
+                        uR = initialMainTiles[x + 1, y + 1];
+                        r = initialMainTiles[x + 1, y];
+                        dR = initialMainTiles[x + 1, y - 1];
+                        d = initialMainTiles[x, y - 1];
+                        dL = initialMainTiles[x - 1, y - 1];
+                    }
+
+                    t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                    if (initialMainTiles[x, y])
+                    {
+                        iterativeMainTiles[x, y] = !(t < _D);
+                    }
+                    else
+                    {
+                        iterativeMainTiles[x, y] = t > _B;
+                    }
+                }
+            }
+
+            for (int y = 0; y < chunkSize; y++)
+            {
+                for (int x = 0; x < chunkSize; x++)
+                {
+                    float t = 0;
+                    bool l, uL, u, uR, r, dR, d, dL;
+
+                    if (x == 0)
+                    {
+                        l = initialMainTiles[chunkSize - 1, y];
+                        uL = y == chunkSize - 1 ? initialUpTiles[chunkSize - 1, 0] : initialMainTiles[chunkSize - 1, y + 1];
+                        dL = y == 0 ? initialDownTiles[chunkSize - 1, chunkSize - 1] : initialMainTiles[chunkSize - 1, y - 1];
+                    }
+                    else
+                    {
+                        l = x == 0 ? E : initialRightTiles[x - 1, y];
+                        uL = x == 0 || (y == chunkSize - 1) ? E : initialRightTiles[x - 1, y + 1];
+                        dL = y == 0 || x == 0 ? E : initialRightTiles[x - 1, y - 1];
+                    }
+
+                    u = (y == chunkSize - 1) ? E : initialRightTiles[x, y + 1];
+                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialRightTiles[x + 1, y + 1];
+                    r = (x == chunkSize - 1) ? E : initialRightTiles[x + 1, y];
+                    dR = (x == chunkSize - 1) || y == 0 ? E : initialRightTiles[x + 1, y - 1];
+                    d = y == 0 ? E : initialRightTiles[x, y - 1];
+
+                    t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                    if (initialRightTiles[x, y])
+                    {
+                        iterativeRightTiles[x, y] = !(t < _D);
+                    }
+                    else
+                    {
+                        iterativeRightTiles[x, y] = t > _B;
+                    }
+                }
+            }
+
+            for (int y = 0; y < chunkSize; y++)
+            {
+                for (int x = 0; x < chunkSize; x++)
+                {
+                    float t = 0;
+                    bool l, uL, u, uR, r, dR, d, dL;
+
+                    if (y == chunkSize - 1)
+                    {
+                        uL = x == 0 ? initialLeftTiles[chunkSize - 1, 0] : initialMainTiles[x - 1, 0];
+                        u = initialMainTiles[x, 0];
+                        uR = x == chunkSize - 1 ? initialRightTiles[0, 0] : initialMainTiles[x + 1, 0];
+                    }
+                    else
+                    {
+                        uL = x == 0 || (y == chunkSize - 1) ? E : initialDownTiles[x - 1, y + 1];
+                        u = (y == chunkSize - 1) ? E : initialDownTiles[x, y + 1];
+                        uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialDownTiles[x + 1, y + 1];
+                    }
+
+                    l = x == 0 ? E : initialDownTiles[x - 1, y];
+                    r = (x == chunkSize - 1) ? E : initialDownTiles[x + 1, y];
+                    dR = (x == chunkSize - 1) || y == 0 ? E : initialDownTiles[x + 1, y - 1];
+                    d = y == 0 ? E : initialDownTiles[x, y - 1];
+                    dL = y == 0 || x == 0 ? E : initialDownTiles[x - 1, y - 1];
+
+                    t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                    if (initialDownTiles[x, y])
+                    {
+                        iterativeDownTiles[x, y] = !(t < _D);
+                    }
+                    else
+                    {
+                        iterativeDownTiles[x, y] = t > _B;
+                    }
+                }
+            }
+
+            temp = initialUpTiles;
+            initialUpTiles = iterativeUpTiles;
+            iterativeUpTiles = temp;
+
+            temp = initialLeftTiles;
+            initialLeftTiles = iterativeLeftTiles;
+            iterativeLeftTiles = temp;
+
+            temp = initialMainTiles;
+            initialMainTiles = iterativeMainTiles;
+            iterativeMainTiles = temp;
+
+            temp = initialRightTiles;
+            initialRightTiles = iterativeRightTiles;
+            iterativeRightTiles = temp;
+
+            temp = initialDownTiles;
+            initialDownTiles = iterativeDownTiles;
+            iterativeDownTiles = temp;
+        }
+
+        if (correction == CorrectionMode.On)
+            initialMainTiles = ChunkCorrection(initialMainTiles, GetChunkSeed(chunkX, chunkY));
+        return initialMainTiles;
+    }
+
+    private bool[,] Test(int chunkX, int chunkY)
+    {
+        bool[,] initialMainTiles = GetInitialMap(chunkX, chunkY);
+        bool[,] initialUpTiles = GetInitialMap(chunkX, chunkY + 1);
+        bool[,] initialDownTiles = GetInitialMap(chunkX, chunkY - 1);
+        bool[,] initialLeftTiles = GetInitialMap(chunkX - 1, chunkY);
+        bool[,] initialRightTiles = GetInitialMap(chunkX + 1, chunkY);
+
+        bool[,] iterativeMainTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeUpTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeDownTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeLeftTiles = new bool[chunkSize, chunkSize];
+        bool[,] iterativeRightTiles = new bool[chunkSize, chunkSize];
+        bool[,] temp;
+
+        if (ITERATIONS == 0)
+            return initialMainTiles;
+
+        float _D, _B;
+        if (mode == Mode.CPU_Discrete)
+        {
+            _D = D;
+            _B = B;
+        }
+        else
+        {
+            _D = (float)(D / 8f);
+            _B = (float)(B / 8f);
+        }
+
+        for (int y = 0; y < chunkSize; y++)
+        {
+            for (int x = 0; x < chunkSize; x++)
+            {
+                float t = 0;
+                bool l, uL, u, uR, r, dR, d, dL;
+
+                if (y == 0)
+                {
+                    dR = x == chunkSize - 1 ? initialRightTiles[0, chunkSize - 1] : initialMainTiles[x + 1, chunkSize - 1];
+                    d = initialMainTiles[x, chunkSize - 1];
+                    dL = x == 0 ? initialLeftTiles[chunkSize - 1, chunkSize - 1] : initialMainTiles[x - 1, chunkSize - 1];
+                }
+                else
+                {
+                    dR = (x == chunkSize - 1) || y == 0 ? E : initialUpTiles[x + 1, y - 1];
+                    d = y == 0 ? E : initialUpTiles[x, y - 1];
+                    dL = y == 0 || x == 0 ? E : initialUpTiles[x - 1, y - 1];
+                }
+
+                l = x == 0 ? E : initialUpTiles[x - 1, y];
+                uL = x == 0 || (y == chunkSize - 1) ? E : initialUpTiles[x - 1, y + 1];
+                u = (y == chunkSize - 1) ? E : initialUpTiles[x, y + 1];
+                uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialUpTiles[x + 1, y + 1];
+                r = (x == chunkSize - 1) ? E : initialUpTiles[x + 1, y];
+
+                t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                if (initialUpTiles[x, y])
+                {
+                    iterativeUpTiles[x, y] = !(t < _D);
+                }
+                else
+                {
+                    iterativeUpTiles[x, y] = t > _B;
+                }
+            }
+        }
+
+        for (int y = 0; y < chunkSize; y++)
+        {
+            for (int x = 0; x < chunkSize; x++)
+            {
+                float t = 0;
+                bool l, uL, u, uR, r, dR, d, dL;
+
+                if (x == chunkSize - 1)
+                {
+                    uR = y == chunkSize - 1 ? initialUpTiles[0, 0] : initialMainTiles[0, y + 1];
+                    r = initialMainTiles[0, y];
+                    dR = y == 0 ? initialDownTiles[0, chunkSize - 1] : initialMainTiles[0, y - 1];
+                }
+                else
+                {
+                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialLeftTiles[x + 1, y + 1];
+                    r = (x == chunkSize - 1) ? E : initialLeftTiles[x + 1, y];
+                    dR = (x == chunkSize - 1) || y == 0 ? E : initialLeftTiles[x + 1, y - 1];
+                }
+
+                l = x == 0 ? E : initialLeftTiles[x - 1, y];
+                uL = x == 0 || (y == chunkSize - 1) ? E : initialLeftTiles[x - 1, y + 1];
+                u = (y == chunkSize - 1) ? E : initialLeftTiles[x, y + 1];
+                d = y == 0 ? E : initialLeftTiles[x, y - 1];
+                dL = y == 0 || x == 0 ? E : initialLeftTiles[x - 1, y - 1];
+
+                t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                if (initialLeftTiles[x, y])
+                {
+                    iterativeLeftTiles[x, y] = !(t < _D);
+                }
+                else
+                {
+                    iterativeLeftTiles[x, y] = t > _B;
+                }
+            }
+        }
+
+        for (int y = 0; y < chunkSize; y++)
+        {
+            for (int x = 0; x < chunkSize; x++)
+            {
+                float t = 0;
+                bool l, uL, u, uR, r, dR, d, dL;
+
+                if (x == 0 && y == 0)
+                {
+                    dL = E;
+                    l = initialLeftTiles[chunkSize - 1, y];
+                    uL = initialLeftTiles[chunkSize - 1, y + 1];
+
+                    d = initialDownTiles[x, chunkSize - 1];
+                    dR = initialDownTiles[x + 1, chunkSize - 1];
+
+                    u = initialMainTiles[x, y + 1];
+                    uR = initialMainTiles[x + 1, y + 1];
+                    r = initialMainTiles[x + 1, y];
+                }
+                else if (x == chunkSize - 1 && y == chunkSize - 1)
+                {
+                    uR = E;
+                    r = initialRightTiles[0, y];
+                    dR = initialRightTiles[0, y - 1];
+
+                    u = initialUpTiles[x, 0];
+                    uL = initialUpTiles[x - 1, 0];
+
+                    l = initialMainTiles[x - 1, y];
+                    d = initialMainTiles[x, y - 1];
+                    dL = initialMainTiles[x - 1, y - 1];
+                }
+                else if (x == 0 && y == chunkSize - 1)
+                {
+                    uL = E;
+                    l = initialLeftTiles[chunkSize - 1, y];
+                    dL = initialLeftTiles[chunkSize - 1, y - 1];
+
+                    u = initialUpTiles[x, 0];
+                    uR = initialUpTiles[x + 1, 0];
+
+                    r = initialMainTiles[x + 1, y];
+                    dR = initialMainTiles[x + 1, y - 1];
+                    d = initialMainTiles[x, y - 1];
+                }
+                else if (x == chunkSize - 1 && y == 0)
+                {
+                    dR = E;
+                    r = initialRightTiles[0, y];
+                    uR = initialRightTiles[0, y + 1];
+
+                    d = initialDownTiles[x, chunkSize - 1];
+                    dL = initialDownTiles[x - 1, chunkSize - 1];
+
+                    l = initialMainTiles[x - 1, y];
+                    uL = initialMainTiles[x - 1, y + 1];
+                    u = initialMainTiles[x, y + 1];
+                }
+                else if (x == 0)
+                {
+                    l = initialLeftTiles[chunkSize - 1, y];
+                    uL = initialLeftTiles[chunkSize - 1, y + 1];
+                    dL = initialLeftTiles[chunkSize - 1, y + 1];
+
+                    u = initialMainTiles[x, y + 1];
+                    uR = initialMainTiles[x + 1, y + 1];
+                    r = initialMainTiles[x + 1, y];
+                    dR = initialMainTiles[x + 1, y - 1];
+                    d = initialMainTiles[x, y - 1];
+                }
+                else if (y == 0)
+                {
+                    d = initialDownTiles[x, chunkSize - 1];
+                    dR = initialDownTiles[x + 1, chunkSize - 1];
+                    dL = initialDownTiles[x - 1, chunkSize - 1];
+
+                    l = initialMainTiles[x - 1, y];
+                    uL = initialMainTiles[x - 1, y + 1];
+                    u = initialMainTiles[x, y + 1];
+                    uR = initialMainTiles[x + 1, y + 1];
+                    r = initialMainTiles[x + 1, y];
+                }
+                else if (x == chunkSize - 1)
+                {
+                    r = initialRightTiles[0, y];
+                    dR = initialRightTiles[0, y - 1];
+                    uR = initialRightTiles[0, y + 1];
+
+                    l = initialMainTiles[x - 1, y];
+                    uL = initialMainTiles[x - 1, y + 1];
+                    u = initialMainTiles[x, y + 1];
+                    d = initialMainTiles[x, y - 1];
+                    dL = initialMainTiles[x - 1, y - 1];
+                }
+                else if (y == chunkSize - 1)
+                {
+                    u = initialUpTiles[x, 0];
+                    uL = initialUpTiles[x - 1, 0];
+                    uR = initialUpTiles[x + 1, 0];
+
+                    l = initialMainTiles[x - 1, y];
+                    r = initialMainTiles[x + 1, y];
+                    dR = initialMainTiles[x + 1, y - 1];
+                    d = initialMainTiles[x, y - 1];
+                    dL = initialMainTiles[x - 1, y - 1];
+                }
+                else
+                {
+                    l = initialMainTiles[x - 1, y];
+                    uL = initialMainTiles[x - 1, y + 1];
+                    u = initialMainTiles[x, y + 1];
+                    uR = initialMainTiles[x + 1, y + 1];
+                    r = initialMainTiles[x + 1, y];
+                    dR = initialMainTiles[x + 1, y - 1];
+                    d = initialMainTiles[x, y - 1];
+                    dL = initialMainTiles[x - 1, y - 1];
+                }
+
+                t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                if (initialMainTiles[x, y])
+                {
+                    iterativeMainTiles[x, y] = !(t < _D);
+                }
+                else
+                {
+                    iterativeMainTiles[x, y] = t > _B;
+                }
+            }
+        }
+
+        for (int y = 0; y < chunkSize; y++)
+        {
+            for (int x = 0; x < chunkSize; x++)
+            {
+                float t = 0;
+                bool l, uL, u, uR, r, dR, d, dL;
+
+                if (x == 0)
+                {
+                    l = initialMainTiles[chunkSize - 1, y];
+                    uL = y == chunkSize - 1 ? initialUpTiles[chunkSize - 1, 0] : initialMainTiles[chunkSize - 1, y + 1];
+                    dL = y == 0 ? initialDownTiles[chunkSize - 1, chunkSize - 1] : initialMainTiles[chunkSize - 1, y - 1];
+                }
+                else
+                {
+                    l = x == 0 ? E : initialRightTiles[x - 1, y];
+                    uL = x == 0 || (y == chunkSize - 1) ? E : initialRightTiles[x - 1, y + 1];
+                    dL = y == 0 || x == 0 ? E : initialRightTiles[x - 1, y - 1];
+                }
+
+                u = (y == chunkSize - 1) ? E : initialRightTiles[x, y + 1];
+                uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialRightTiles[x + 1, y + 1];
+                r = (x == chunkSize - 1) ? E : initialRightTiles[x + 1, y];
+                dR = (x == chunkSize - 1) || y == 0 ? E : initialRightTiles[x + 1, y - 1];
+                d = y == 0 ? E : initialRightTiles[x, y - 1];
+
+                t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                if (initialRightTiles[x, y])
+                {
+                    iterativeRightTiles[x, y] = !(t < _D);
+                }
+                else
+                {
+                    iterativeRightTiles[x, y] = t > _B;
+                }
+            }
+        }
+
+        for (int y = 0; y < chunkSize; y++)
+        {
+            for (int x = 0; x < chunkSize; x++)
+            {
+                float t = 0;
+                bool l, uL, u, uR, r, dR, d, dL;
+
+                if (y == chunkSize - 1)
+                {
+                    uL = x == 0 ? initialLeftTiles[chunkSize - 1, 0] : initialMainTiles[x - 1, 0];
+                    u = initialMainTiles[x, 0];
+                    uR = x == chunkSize - 1 ? initialRightTiles[0, 0] : initialMainTiles[x + 1, 0];
+                }
+                else
+                {
+                    uL = x == 0 || (y == chunkSize - 1) ? E : initialDownTiles[x - 1, y + 1];
+                    u = (y == chunkSize - 1) ? E : initialDownTiles[x, y + 1];
+                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialDownTiles[x + 1, y + 1];
+                }
+
+                l = x == 0 ? E : initialDownTiles[x - 1, y];
+                r = (x == chunkSize - 1) ? E : initialDownTiles[x + 1, y];
+                dR = (x == chunkSize - 1) || y == 0 ? E : initialDownTiles[x + 1, y - 1];
+                d = y == 0 ? E : initialDownTiles[x, y - 1];
+                dL = y == 0 || x == 0 ? E : initialDownTiles[x - 1, y - 1];
+
+                t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                if (initialDownTiles[x, y])
+                {
+                    iterativeDownTiles[x, y] = !(t < _D);
+                }
+                else
+                {
+                    iterativeDownTiles[x, y] = t > _B;
+                }
+            }
+        }
+
+        temp = initialUpTiles;
+        initialUpTiles = iterativeUpTiles;
+        iterativeUpTiles = temp;
+
+        temp = initialLeftTiles;
+        initialLeftTiles = iterativeLeftTiles;
+        iterativeLeftTiles = temp;
+
+        temp = initialMainTiles;
+        initialMainTiles = iterativeMainTiles;
+        iterativeMainTiles = temp;
+
+        temp = initialRightTiles;
+        initialRightTiles = iterativeRightTiles;
+        iterativeRightTiles = temp;
+
+        temp = initialDownTiles;
+        initialDownTiles = iterativeDownTiles;
+        iterativeDownTiles = temp;
+
+        for (int i = 0; i < ITERATIONS - 1; i++)
+        {
+            for (int y = 0; y < chunkSize; y++)
+            {
+                for (int x = 0; x < chunkSize; x++)
+                {
+                    float t = 0;
+                    bool l, uL, u, uR, r, dR, d, dL;
+
+                    l = x == 0 ? E : initialMainTiles[x - 1, y];
+                    uL = x == 0 || (y == chunkSize - 1) ? E : initialMainTiles[x - 1, y + 1];
+                    u = (y == chunkSize - 1) ? E : initialMainTiles[x, y + 1];
+                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialMainTiles[x + 1, y + 1];
+                    r = (x == chunkSize - 1) ? E : initialMainTiles[x + 1, y];
+                    dR = (x == chunkSize - 1) || (y == 0) ? E : initialMainTiles[x + 1, y - 1];
+                    d = (y == 0) ? E : initialMainTiles[x, y - 1];
+                    dL = (x == 0) || (y == 0) ? E : initialMainTiles[x - 1, y - 1];
+
+                    t = GetValue(l, uL, u, uR, r, dR, d, dL);
+
+                    if (initialMainTiles[x, y])
+                    {
+                        iterativeMainTiles[x, y] = !(t < _D);
+                    }
+                    else
+                    {
+                        iterativeMainTiles[x, y] = t > _B;
+                    }
+                }
+            }
+
+            temp = initialMainTiles;
+            initialMainTiles = iterativeMainTiles;
+            iterativeMainTiles = temp;
+        }
+
+        if (correction == CorrectionMode.On)
+            initialMainTiles = ChunkCorrection(initialMainTiles, GetChunkSeed(chunkX, chunkY));
+        return initialMainTiles;
+    }
+
+
+    private int GetChunkSeed(int chunkX, int chunkY)
     {
         System.Random prng = new System.Random(seed);
-        prng = new System.Random(prng.Next(-100000, 100000) + currentChunkX);
-        int chunkSeed = prng.Next(-100000, 100000) + currentChunkY;
-        prng = new System.Random(chunkSeed);
+        prng = new System.Random(prng.Next(-100000, 100000) + chunkX);
+        int chunkSeed = prng.Next(-100000, 100000) + chunkY;
+
+        return chunkSeed;
+    }
+
+    private bool[,] GetInitialMap(int chunkX, int chunkY)
+    {
+        System.Random prng = new System.Random(GetChunkSeed(chunkX, chunkY));
 
         bool[,] initialTiles = new bool[chunkSize, chunkSize];
 
@@ -125,68 +934,14 @@ public class PreviewAutomaton : MonoBehaviour
         {
             for (int x = 0; x < chunkSize; x++)
             {
-                initialTiles[x, y] = (prng.Next(0, 100000) / 100000f) < P;
+                initialTiles[x, y] = prng.Next(-100000, 100000) < P;
             }
         }
 
-        if (ITERATIONS == 0)
-            return initialTiles;
-
-        bool[,] iterativeTiles = new bool[chunkSize, chunkSize];
-
-        bool[,] temp;
-        for (int i = 0; i < ITERATIONS; i++)
-        {
-            for (int y = 0; y < chunkSize; y++)
-            {
-                for (int x = 0; x < chunkSize; x++)
-                {
-                    float code;
-                    bool l, uL, u, uR, r, dR, d, dL;
-                    l = x == 0 ? E : initialTiles[x - 1, y];
-                    uL = x == 0 || (y == chunkSize - 1) ? E : initialTiles[x - 1, y + 1];
-                    u = (y == chunkSize - 1) ? E : initialTiles[x, y + 1];
-                    uR = (x == chunkSize - 1) || (y == chunkSize - 1) ? E : initialTiles[x + 1, y + 1];
-                    r = (x == chunkSize - 1) ? E : initialTiles[x + 1, y];
-                    dR = (x == chunkSize - 1) || y == 0 ? E : initialTiles[x + 1, y - 1];
-                    d = y == 0 ? E : initialTiles[x, y - 1];
-                    dL = y == 0 || x == 0 ? E : initialTiles[x - 1, y - 1];
-
-                    code = GetValue(l, uL, u, uR, r, dR, d, dL);
-
-                    float _D, _B;
-                    if (mode == Mode.CPU_Discrete)
-                    {
-                        _D = D;
-                        _B = B;
-                    }
-                    else
-                    {
-                        _D = (float)(D / 8f);
-                        _B = (float)(B / 8f);
-                    }
-
-                    if (initialTiles[x, y])
-                    {
-                        iterativeTiles[x, y] = !(code < _D);
-                    }
-                    else
-                    {
-                        iterativeTiles[x, y] = code > _B;
-                    }
-                }
-            }
-            temp = initialTiles;
-            initialTiles = iterativeTiles;
-            iterativeTiles = temp;
-        }
-
-        if (test == Test.correction)
-            initialTiles = ChunkCorrection(initialTiles, chunkSeed);
         return initialTiles;
     }
 
-    public bool[,] GenerateTilesOnGPU(int currentChunkX, int currentChunkY)
+    private bool[,] GenerateTilesOnGPU(int currentChunkX, int currentChunkY)
     {
         System.Random prng = new System.Random(seed);
         prng = new System.Random(prng.Next(-100000, 100000) + currentChunkX);
@@ -206,27 +961,27 @@ public class PreviewAutomaton : MonoBehaviour
         ComputeBuffer prev = new ComputeBuffer(chunkSize * chunkSize, sizeof(float), ComputeBufferType.Default);
         ComputeBuffer curr = new ComputeBuffer(chunkSize * chunkSize, sizeof(float), ComputeBufferType.Default);
 
-        shader.SetInt("E", E ? 1 : 0);
-        shader.SetInt("B", (int)B);
-        shader.SetInt("D", (int)D);
-        shader.SetInt("chunkSize", chunkSize);
+        CAShader.SetInt("E", E ? 1 : 0);
+        CAShader.SetInt("B", (int)B);
+        CAShader.SetInt("D", (int)D);
+        CAShader.SetInt("chunkSize", chunkSize);
 
-        int kernelHandle = shader.FindKernel("CSMain");
+        int kernelHandle = CAShader.FindKernel("CSMain");
         
         prev.SetData(initialTiles);
         for (int i = 0; i < ITERATIONS; i++)
         {
             if (i % 2 == 0)
             {
-                shader.SetBuffer(kernelHandle, "initialTiles", prev);
-                shader.SetBuffer(kernelHandle, "iterativeTiles", curr);
+                CAShader.SetBuffer(kernelHandle, "initialTiles", prev);
+                CAShader.SetBuffer(kernelHandle, "initialTiles", curr);
             }
             else
             {
-                shader.SetBuffer(kernelHandle, "initialTiles", curr);
-                shader.SetBuffer(kernelHandle, "iterativeTiles", prev);
+                CAShader.SetBuffer(kernelHandle, "initialTiles", curr);
+                CAShader.SetBuffer(kernelHandle, "initialTiles", prev);
             }
-            shader.Dispatch(kernelHandle, 1, 1, 1);    
+            CAShader.Dispatch(kernelHandle, 1, 1, 1);    
         }
         if (ITERATIONS % 2 == 0)
         {
@@ -294,11 +1049,13 @@ public class PreviewAutomaton : MonoBehaviour
                 duplicates.Add(fillIds[fillers[i].fillerIndex]);
         }
 
+        if (fillers.Count == 1)
+            return chunkMap;
         return ConnectAutomataPaths(fillers, fillIds, blockMap, fillMap, chunkMap, chunkSeed);
     }
 
-    //Connector code
     #region
+    //Connector code
     private List<TestFiller> FloodFillPartition(in bool[,] chunkMap, int[,] fillMap, int[,] blockMap, List<int> fillIds, int partitionID)
     {
         int yStart = (int)(chunkSize * (partitionID / 3f));
@@ -327,7 +1084,7 @@ public class PreviewAutomaton : MonoBehaviour
 
         return fillers;
     }
-    public class TestFiller
+    private class TestFiller
     {
         public readonly int fillerIndex;
 
@@ -474,6 +1231,10 @@ public class PreviewAutomaton : MonoBehaviour
     }
     private bool[,] ConnectAutomataPaths(List<TestFiller> fillers, List<int> fillIds, int[,] blockMap, int[,] fillMap, bool[,] chunkMap, int chunkSeed)
     {
+        if (fillers.Count < 2)
+        {
+            return chunkMap;
+        }
         TestFiller baseFiller = fillers[0];
 
         Vector2 baseBlockPos = new Vector2((int)baseFiller.GetPoint().x / 3, (int)baseFiller.GetPoint().y / 3);
@@ -759,57 +1520,5 @@ public class PreviewAutomaton : MonoBehaviour
         }
     }
     #endregion
-
-
-    public void OnDrawGizmos()
-    {
-        if (debugFills == null)
-            return;
-        if (colors == null)
-            return;
-        for (int y = 0; y < chunkSize / 3; y++)
-        {
-            for (int x = 0; x < chunkSize / 3; x++)
-            {
-                Color color = new Color();
-                switch (colors[debugFills[x, y]]) {
-                    case 1:
-                        color = Color.red;
-                        break;
-                    case 2:
-                        color = Color.green;
-                        break;
-                    case 3:
-                        color = Color.blue;
-                        break;
-                    case 4:
-                        color = Color.white;
-                        break;
-                    case 5:
-                        color = Color.cyan;
-                        break;
-                    case 6:
-                        color = Color.gray;
-                        break;
-                    case 7:
-                        color = Color.magenta;
-                        break;
-                    case 8:
-                        color = Color.black;
-                        break;
-                    case -1:
-                        color = Color.clear;
-                        break;
-                    case 9:
-                        color = new Color(234, 146, 13);
-                        break;
-                    case 10:
-                        color = new Color(1, 193, 31);
-                        break;
-                }
-                Gizmos.color = color;
-                Gizmos.DrawCube(new Vector2(x * 3, y * 3), Vector3.one * 3);
-            }
-        }
-    }
+    #endregion
 }

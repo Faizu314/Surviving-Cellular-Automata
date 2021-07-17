@@ -1,0 +1,44 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> Result;
+StructuredBuffer<int> chunkMap;
+float indexToUV;
+float2 offset;
+int textureSize;
+
+//[numthreads(27,27,1)]
+//void CSMain (uint3 id : SV_DispatchThreadID)
+//{
+//    int chunkIndex = id.y * 27 + id.x;
+//    int2 resultIndex = (id.xy * indexToUV + offset) * textureSize;
+//    if (chunkMap[chunkIndex] == 1) {
+//        Result[resultIndex] = float4(1, 1, 1, 1);
+//    }
+//    else {
+//        Result[resultIndex] = float4(0, 0, 0, 1);
+//    }
+//}
+
+bool IsUVInChunk(float x, float y) {
+    bool checkX = (x >= offset.x) && (x < (offset.x + 27 * indexToUV));
+    bool checkY = (y >= offset.y) && (y < (offset.y + 27 * indexToUV));
+    return checkX && checkY;
+}
+
+[numthreads(32, 32, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    float XUV = id.x / (float)128;
+    float YUV = id.y / (float)128;
+    if (IsUVInChunk(XUV, YUV)) {
+        int tileX = (XUV - offset.x) / indexToUV;
+        int tileY = (YUV - offset.y) / indexToUV;
+        int chunkIndex = tileY * 27 + tileX;
+        if (chunkMap[chunkIndex] == 1) {
+            Result[id.xy] = float4(1, 1, 1, 1);
+        }
+        else {
+            Result[id.xy] = float4(0, 0, 0, 1);
+        }
+    }
+}

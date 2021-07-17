@@ -6,8 +6,8 @@ public class EndlessCavern : MonoBehaviour
 {
     public static int CHUNK_SIZE;
     public static int SEED;
-    public static int RENDER_WINDOW_WIDTH = 13;
-    public static int RENDER_WINDOW_HEIGHT = 13;
+    public static int RENDER_WINDOW_WIDTH = 27;
+    public static int RENDER_WINDOW_HEIGHT = 27;
 
     [SerializeField] private Transform observer;
 

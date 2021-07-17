@@ -58,6 +58,7 @@
   <ItemGroup>
     <Compile Include="Assets\Scripts\Player\PlayerController2D.cs" />
     <Compile Include="Assets\Scripts\Generation\Connector.cs" />
+    <Compile Include="Assets\Scripts\Camera\PostProcessing.cs" />
     <Compile Include="Assets\Scripts\Camera\CameraMovement.cs" />
     <Compile Include="Assets\Scripts\Generation\ProceduralPrefabs.cs" />
     <Compile Include="Assets\Scripts\Player\MobileController.cs" />
@@ -67,9 +68,9 @@
     <Compile Include="Assets\Scripts\Saving\MapDataSaver.cs" />
     <Compile Include="Assets\Scripts\Generation\EndlessCavern.cs" />
     <Compile Include="Assets\Scripts\Generation\PreviewAutomaton.cs" />
-    <Compile Include="Assets\Scripts\Camera\PostProcessing.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Assets\Scripts\ComputeShader\MapDisplay.compute" />
     <None Include="Assets\Dungeon Crawler 2D Art Pack\Spine Projects\ExportedForUnity\Character\Left\CharacterLeft.atlas.txt" />
     <None Include="Assets\Dungeon Crawler 2D Art Pack\Spine Projects\ExportedForUnity\Character\Back\CharacterBack.atlas.txt" />
     <None Include="Assets\Scripts\Vertex&amp;Fragment Shader\Fog.shader" />
