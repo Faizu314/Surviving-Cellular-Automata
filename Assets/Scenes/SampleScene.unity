@@ -489,6 +489,42 @@ Animator:
   m_CorrespondingSourceObject: {fileID: 95041813273560246, guid: 024497ca59b493545a9fe8b5720392e4, type: 3}
   m_PrefabInstance: {fileID: 1225589978}
   m_PrefabAsset: {fileID: 0}
+--- !u!84 &844697099
+RenderTexture:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  m_ImageContentsHash:
+    serializedVersion: 2
+    Hash: 00000000000000000000000000000000
+  m_ForcedFallbackFormat: 4
+  m_DownscaleFallback: 0
+  m_IsAlphaChannelOptional: 0
+  serializedVersion: 3
+  m_Width: 128
+  m_Height: 128
+  m_AntiAliasing: 1
+  m_MipCount: -1
+  m_DepthFormat: 1
+  m_ColorFormat: 8
+  m_MipMap: 0
+  m_GenerateMips: 1
+  m_SRGB: 0
+  m_UseDynamicScale: 0
+  m_BindMS: 0
+  m_EnableCompatibleFormat: 1
+  m_TextureSettings:
+    serializedVersion: 2
+    m_FilterMode: 1
+    m_Aniso: 1
+    m_MipBias: 0
+    m_WrapU: 1
+    m_WrapV: 1
+    m_WrapW: 1
+  m_Dimension: 2
+  m_VolumeDepth: 1
 --- !u!1 &998946319
 GameObject:
   m_ObjectHideFlags: 0
@@ -540,12 +576,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   image: {fileID: 998946323}
-  mapDisplay: {fileID: 1200089723}
+  mapDisplay: {fileID: 844697099}
   CAShader: {fileID: 7200000, guid: 4ad859b74f2b2ff4a955c892dccd42a1, type: 3}
   projectorShader: {fileID: 7200000, guid: c0d9d4300c0ebf840b16444065dfa16b, type: 3}
   chunkSize: 27
-  mode: 0
-  correction: 0
+  mode: 1
+  correction: 1
   seed: 0
   P: 0.5
   E: 1
@@ -553,18 +589,18 @@ MonoBehaviour:
   D: 3.13
   ITERATIONS: 2
   rulesVector:
-  - 0.9126822
-  - 0.8182305
-  - 0.5214898
-  - 0.07561708
-  - 0.8452556
-  - 0.9414146
-  - 0.3980655
-  - 0.9780301
-  scrollSensitivity: 0.076
+  - 0.6776945
+  - 0.19667533
+  - 0.035067443
+  - 0.4630353
+  - 0.5534608
+  - 0.67804354
+  - 0.08164323
+  - 0.9479954
+  scrollSensitivity: 0.023
   zoomSensitivity: 0.069
-  mapOffset: {x: -1.8679996, y: -0.95599985}
-  zoomLevel: 4.380999
+  mapOffset: {x: -0.5, y: -0.5}
+  zoomLevel: 1
 --- !u!114 &998946323
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -585,7 +621,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Texture: {fileID: 1200089723}
+  m_Texture: {fileID: 844697099}
   m_UVRect:
     serializedVersion: 2
     x: 0
@@ -600,42 +636,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 998946319}
   m_CullTransparentMesh: 1
---- !u!84 &1200089723
-RenderTexture:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: 
-  m_ImageContentsHash:
-    serializedVersion: 2
-    Hash: 00000000000000000000000000000000
-  m_ForcedFallbackFormat: 4
-  m_DownscaleFallback: 0
-  m_IsAlphaChannelOptional: 0
-  serializedVersion: 3
-  m_Width: 128
-  m_Height: 128
-  m_AntiAliasing: 1
-  m_MipCount: -1
-  m_DepthFormat: 1
-  m_ColorFormat: 8
-  m_MipMap: 0
-  m_GenerateMips: 1
-  m_SRGB: 0
-  m_UseDynamicScale: 0
-  m_BindMS: 0
-  m_EnableCompatibleFormat: 1
-  m_TextureSettings:
-    serializedVersion: 2
-    m_FilterMode: 1
-    m_Aniso: 1
-    m_MipBias: 0
-    m_WrapU: 1
-    m_WrapV: 1
-    m_WrapW: 1
-  m_Dimension: 2
-  m_VolumeDepth: 1
 --- !u!1001 &1225589978
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -705,7 +705,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 212308079959577092, guid: 024497ca59b493545a9fe8b5720392e4, type: 3}
       propertyPath: m_Enabled
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 024497ca59b493545a9fe8b5720392e4, type: 3}

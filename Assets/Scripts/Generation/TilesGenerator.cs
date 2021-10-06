@@ -196,8 +196,7 @@ public class TilesGenerator : MonoBehaviour
         return chunkMap;
     }
 
-    //Step one jobs
-    #region
+    #region Step One Jobs
     private bool[,] GetInitialMap(int chunkX, int chunkY)
     {
         System.Random prng = new System.Random(GetChunkSeed(chunkX, chunkY));
@@ -217,8 +216,7 @@ public class TilesGenerator : MonoBehaviour
     }
     #endregion
 
-    //Step two jobs
-    #region
+    #region Step Two jobs
     private void TopCellularAutomata(bool[,] iterativeUpTiles, bool[,] initialUpTiles, bool[,] initialMainTiles, bool[,] initialLeftTiles, bool[,] initialRightTiles)
     {
         int chunkSize = EndlessCavern.CHUNK_SIZE;
@@ -529,8 +527,7 @@ public class TilesGenerator : MonoBehaviour
     }
     #endregion
 
-    //Step three jobs
-    #region
+    #region Step Three Jobs
     private List<Filler> FloodFillPartition(in bool[,] chunkMap, int[,] fillMap, int[,] blockMap, List<int> fillIds, int partitionID)
     {
         int chunkSize = EndlessCavern.CHUNK_SIZE;

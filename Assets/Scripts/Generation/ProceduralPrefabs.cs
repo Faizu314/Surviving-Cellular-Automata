@@ -1,7 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using Faizu.ChunkGrid;
+using Faizan314.ChunkGrid;
 
 public class ProceduralPrefabs : MonoBehaviour
 {

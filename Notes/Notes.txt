@@ -4,16 +4,24 @@ GitBash {
 	git push origin main
 }
 
-Future Plans:
-
-Biomes {
-	Biomes using different CA rules and different algorithms
-	Blend between different Biomes
-	Use entirely different algorithms to generate special chunks
+Connector {
+	Corridor Connector {
+		Use greedy algorithm to get as close as possible to the nearest fill
+		Head straight towards it
+	}
 }
 
-Threading {
-	Queues of thread requests with priority ordering in each queue
-	A tick system where each background activity will be dispatched at its turn and has its own queue
-	Control the concurrent threads dispatched at a time
+
+Future Plans {
+	Biomes {
+		Biomes using different CA rules and different algorithms
+		Blend between different Biomes
+		Use entirely different algorithms to generate clumps of special chunks
+	}
+
+	Threading {
+		Queues of thread requests with priority ordering in each queue
+		A tick system where each background activity will be dispatched at its turn and has its own queue
+		Control the concurrent threads dispatched at a time
+	}
 }

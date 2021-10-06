@@ -1,4 +1,32 @@
+//////////// PROCEDURAL CHEMISTRY /////////////////	
+
+
+Atomic Modelling {
+	Bonding and molecules
+}
+
+Fundamental Lengths Generations {
+	Gen 1 {
+		3 lengths
+	}
+	Gen 2 {
+		A few sum of combinations of prev gen
+		A few new random lengths
+	}
+	And so on.
+}
+
+//////////// TERRAIN GENERATION /////////////////
+
+
+Connector {
+	Doesn't work redo
+	All of it
+	Path clings to the boundaries and reveals them
+}
+
 Unexplored Fog {
+	//Fog seems to be pretty complicated lets work with current shader for now//
 	Use camera stencil buffer
 	First the unexplored tiles will be used to make 2D mesh which will use StencilWrite material
 	This mesh will be rendered FIRST (Using queue) and stencil buffer will be updated to 1
@@ -14,12 +42,7 @@ Tiles Pooling {
 	currently still pooling around 1k gameObjects... :/
 }
 
-Continuous Tile Values {
-	Automata template should be a matrix of rules
-	use float instead of bool (Refer to Notes Photo)
-}
-
-A* Optimizations {
+A* Alterations {
 	Add a Weight to overestimate Heuristic: Cost = g(x) + h(x) * W
 	Maybe use octile distance: max(dx, dy) + (sqrt(diagonal) - 1) * min(dx, dy)
 }

@@ -1,14 +1,15 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
-    <LangVersion>8.0</LangVersion>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>10.0.20506</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <RootNamespace></RootNamespace>
+    <RootNamespace>
+    </RootNamespace>
     <ProjectGuid>{823B722C-FC7B-D77C-7ABA-9024BDF0EF6F}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
@@ -47,27 +48,32 @@
   <PropertyGroup>
     <ProjectTypeGuids>{E097FAD1-6243-4DAD-9C02-E9B9EFC3FFC1};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <UnityProjectGenerator>Package</UnityProjectGenerator>
-    <UnityProjectGeneratorVersion>2.0.9</UnityProjectGeneratorVersion>
+    <UnityProjectGeneratorVersion>2.0.11</UnityProjectGeneratorVersion>
     <UnityProjectType>Game:1</UnityProjectType>
     <UnityBuildTarget>Android:13</UnityBuildTarget>
     <UnityVersion>2020.2.1f1</UnityVersion>
   </PropertyGroup>
   <ItemGroup>
-    <Analyzer Include="C:\Program Files (x86)\Microsoft Visual Studio Tools for Unity\16.0\Analyzers\Microsoft.Unity.Analyzers.dll" />
-  </ItemGroup>
-  <ItemGroup>
+    <Compile Include="Assets\Scripts\Libraries\DirectedRegionalGraph.cs" />
+    <Compile Include="Assets\Scripts\PhysicsSimulation\SubAtomicPhysics.cs" />
     <Compile Include="Assets\Scripts\Player\PlayerController2D.cs" />
     <Compile Include="Assets\Scripts\Generation\Connector.cs" />
     <Compile Include="Assets\Scripts\Camera\PostProcessing.cs" />
+    <Compile Include="Assets\Scripts\AtomicModelling\ParticleModel.cs" />
+    <Compile Include="Assets\Scripts\AtomicModelling\PolygonModel.cs" />
     <Compile Include="Assets\Scripts\Camera\CameraMovement.cs" />
     <Compile Include="Assets\Scripts\Generation\ProceduralPrefabs.cs" />
     <Compile Include="Assets\Scripts\Player\MobileController.cs" />
     <Compile Include="Assets\Scripts\Generation\TilesGenerator.cs" />
     <Compile Include="Assets\Scripts\Generation\PoolManager.cs" />
     <Compile Include="Assets\Scripts\Saving\ExplorationSaver.cs" />
+    <Compile Include="Assets\Scripts\TestPreview\PreviewPolygonAtom.cs" />
     <Compile Include="Assets\Scripts\Saving\MapDataSaver.cs" />
     <Compile Include="Assets\Scripts\Generation\EndlessCavern.cs" />
-    <Compile Include="Assets\Scripts\Generation\PreviewAutomaton.cs" />
+    <Compile Include="Assets\Scripts\TestPreview\PhysicsSimulationPreview.cs" />
+    <Compile Include="Assets\Scripts\TestPreview\PreviewAutomaton.cs" />
+    <Compile Include="Assets\Scripts\Libraries\Geometry.cs" />
+    <Compile Include="Assets\Scripts\Libraries\Algorithms.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Scripts\ComputeShader\MapDisplay.compute" />
