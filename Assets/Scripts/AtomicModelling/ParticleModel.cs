@@ -1,9 +1,7 @@
 using UnityEngine;
 
-namespace ProceduralChemistry
+namespace ProceduralChemistry.SubAtomicParticles
 {
-    namespace SubAtomicParticles
-    {
         public static class ParticleModel
         {
             public static SubAtomicParticle[] particles;
@@ -44,5 +42,4 @@ namespace ProceduralChemistry
             public float size;
             public float spin;
         }
-    }
 }

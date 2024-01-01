@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System;
 using UnityEngine;
@@ -85,11 +84,11 @@ public class Connector
         return closestPoint;
     }
 
-    public static bool[,] ConnectAutomataPaths(List<TilesGenerator.Filler> fillers, List<int> fillIds, int[,] blockMap, int[,] fillMap, bool[,] chunkMap, int chunkSeed)
+    public static bool[,] ConnectAutomataPaths(List<Filler> fillers, List<int> fillIds, int[,] blockMap, int[,] fillMap, bool[,] chunkMap, int chunkSeed)
     {
         if (fillers.Count < 2)
             return chunkMap;
-        TilesGenerator.Filler baseFiller = fillers[0];
+        Filler baseFiller = fillers[0];
 
         Vector2 baseBlockPos = new Vector2((int)baseFiller.GetPoint().x / 3, (int)baseFiller.GetPoint().y / 3);
         int baseFillerId = fillIds[baseFiller.fillerIndex];

@@ -24,7 +24,7 @@ true
 alot of unreachable areas
 wide paths
 very few short paths
-not very convulated
+not very convoluted
 
 0.55
 true
@@ -43,7 +43,7 @@ true
 
 Very few unreachable areas
 shallow paths
-quite convulated
+quite convoluted
 
 
 0.73
@@ -52,5 +52,5 @@ true
 6
 1
 
-convulated shallow paths
+convoluted shallow paths
 alot of unreachable areas

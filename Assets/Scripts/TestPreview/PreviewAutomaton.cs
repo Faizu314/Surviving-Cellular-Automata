@@ -50,6 +50,8 @@ public class PreviewAutomaton : MonoBehaviour
     public void ApplyRules()
     {
         chunks.Clear();
+        LoadChunks();
+        Draw();
     }
 
     public void LoadChunks()
@@ -160,9 +162,9 @@ public class PreviewAutomaton : MonoBehaviour
     private Vector2 WorldToDisplayPosition(Vector2Int chunkPosition)
     {
         Vector2 displayPos = Vector2.zero;
-        displayPos.x += (chunkPosition.x * chunkSize * zoomLevel) / mapDisplay.width;
-        displayPos.y += (chunkPosition.y * chunkSize * zoomLevel) / mapDisplay.height;
-        displayPos -= mapOffset;
+        displayPos.x += (chunkPosition.x - mapOffset.x) * chunkSize * zoomLevel / mapDisplay.width;
+        displayPos.y += (chunkPosition.y - mapOffset.y) * chunkSize * zoomLevel / mapDisplay.height;
+        //displayPos -= mapOffset;
         return displayPos;
     }
 

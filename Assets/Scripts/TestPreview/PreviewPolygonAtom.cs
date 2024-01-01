@@ -1,6 +1,8 @@
 using UnityEngine;
-using ProceduralChemistry.TessellatedMatter;
 using UnityEditor;
+using ProceduralChemistry.TessellatedMatter;
+using ProceduralChemistry.TessellatedMatter.Elements;
+using Faizan314.Mathematics.Geometry;
 
 public class PreviewPolygonAtom : MonoBehaviour
 {
@@ -16,11 +18,27 @@ public class PreviewPolygonAtom : MonoBehaviour
         periodicTable = new PeriodicTable(fundamentalEdgesCount, seed);
         atom = periodicTable.GenerateAtom(atomicNumber);
     }
+    private void GetAtomArea()
+    {
+        Debug.Log("Area = " + Polygons.GetPolygonArea(atom.vertices));
+    }
     private void Update()
     {
+        PreviewAtomGeneration();
+    }
+    private void PreviewAtomGeneration()
+    {
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            seed = Random.Range(int.MinValue, int.MaxValue);
+        }
         if (Input.GetKeyDown(KeyCode.Space))
         {
             GenerateAtom();
+        }
+        if (Input.GetKeyDown(KeyCode.A))
+        {
+            GetAtomArea();
         }
     }
     private void OnDrawGizmos()
