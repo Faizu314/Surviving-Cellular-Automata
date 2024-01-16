@@ -123,7 +123,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!84 &10769557
+--- !u!84 &133648409
 RenderTexture:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -151,7 +151,7 @@ RenderTexture:
   m_EnableCompatibleFormat: 1
   m_TextureSettings:
     serializedVersion: 2
-    m_FilterMode: 1
+    m_FilterMode: 0
     m_Aniso: 1
     m_MipBias: 0
     m_WrapU: 1
@@ -581,31 +581,31 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   image: {fileID: 998946323}
-  mapDisplay: {fileID: 10769557}
+  mapDisplay: {fileID: 133648409}
   CAShader: {fileID: 7200000, guid: 4ad859b74f2b2ff4a955c892dccd42a1, type: 3}
   projectorShader: {fileID: 7200000, guid: c0d9d4300c0ebf840b16444065dfa16b, type: 3}
   chunkSize: 27
   mode: 1
-  correction: 0
+  correction: 1
   seed: 0
   P: 0.5
-  E: 1
-  B: 5.89
-  D: 3.13
-  ITERATIONS: 2
+  E: 0
+  B: 4.31
+  D: 3.86
+  ITERATIONS: 4
   rulesVector:
-  - 0.50031286
-  - 0.0893848
-  - 0.27000406
-  - 0.48883516
-  - 0.35175076
-  - 0.4552737
-  - 0.2612131
-  - 0.19109324
+  - 0.35585585
+  - 0.7966311
+  - 0.19431832
+  - 0.20544603
+  - 0.847
+  - 0.20039728
+  - 0.27253512
+  - 0.2907534
   scrollSensitivity: 0.023
   zoomSensitivity: 0.069
-  mapOffset: {x: -0.5, y: -0.5}
-  zoomLevel: 1
+  mapOffset: {x: -0.44, y: -0.29}
+  zoomLevel: 2
 --- !u!114 &998946323
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -626,7 +626,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Texture: {fileID: 10769557}
+  m_Texture: {fileID: 133648409}
   m_UVRect:
     serializedVersion: 2
     x: 0

@@ -58,7 +58,7 @@ public class PreviewAutomaton : MonoBehaviour
     {
         float tilesPerTexLen = textureSize / zoomLevel;
         Vector2 floatChunkCoor = mapOffset * tilesPerTexLen / chunkSize;
-        Vector2Int downLeftChunkPos = new Vector2Int(Round(floatChunkCoor.x), Round(floatChunkCoor.y));
+        Vector2Int downLeftChunkPos = new(Round(floatChunkCoor.x), Round(floatChunkCoor.y));
         int chunksPerTexLen = Mathf.CeilToInt(tilesPerTexLen / chunkSize) + 1;
         for (int i = 0; i < chunksPerTexLen; i++)
         {
@@ -67,6 +67,15 @@ public class PreviewAutomaton : MonoBehaviour
                 GenerateChunk(downLeftChunkPos.x + i, downLeftChunkPos.y + j);
             }
         }
+    }
+
+    private Vector2 WorldToDisplayPosition(Vector2Int chunkPosition)
+    {
+        Vector2 displayPos = Vector2.zero;
+        displayPos.x += (chunkPosition.x * chunkSize) / (textureSize / zoomLevel);
+        displayPos.y += (chunkPosition.y * chunkSize) / (textureSize / zoomLevel);
+
+        return displayPos - mapOffset;
     }
 
     public void Scroll(Vector2 direction)
@@ -92,6 +101,7 @@ public class PreviewAutomaton : MonoBehaviour
         mapDisplay = new RenderTexture(textureSize, textureSize, 1);
         image.texture = mapDisplay;
         mapDisplay.enableRandomWrite = true;
+        mapDisplay.filterMode = FilterMode.Point;
         ComputeBuffer mapBuffer = new ComputeBuffer(chunkSize * chunkSize, sizeof(int));
 
         foreach (KeyValuePair<Vector2Int, bool[,]> element in chunks)
@@ -102,8 +112,6 @@ public class PreviewAutomaton : MonoBehaviour
         }
         mapBuffer.Dispose();
     }
-
-
 
     private void GenerateChunk(int chunkX, int chunkY)
     {
@@ -153,19 +161,11 @@ public class PreviewAutomaton : MonoBehaviour
 
     private bool IsChunkOnDisplay(Vector2 chunkDisplayPosition)
     {
-        Bounds displayBound = new Bounds(Vector2.one * 0.5f, Vector2.one);
-        Vector2 chunkDim = new Vector2(chunkSize * zoomLevel / mapDisplay.width, chunkSize * zoomLevel / mapDisplay.height);
-        Bounds chunkBound = new Bounds(chunkDisplayPosition + (chunkDim / 2), chunkDim); 
-        return displayBound.Intersects(chunkBound);
-    }
-
-    private Vector2 WorldToDisplayPosition(Vector2Int chunkPosition)
-    {
-        Vector2 displayPos = Vector2.zero;
-        displayPos.x += (chunkPosition.x - mapOffset.x) * chunkSize * zoomLevel / mapDisplay.width;
-        displayPos.y += (chunkPosition.y - mapOffset.y) * chunkSize * zoomLevel / mapDisplay.height;
-        //displayPos -= mapOffset;
-        return displayPos;
+        Bounds displayBound = new(Vector2.one * 0.5f, Vector2.one);
+        Vector2 chunkDim = new(chunkSize * zoomLevel / textureSize, chunkSize * zoomLevel / textureSize);
+        Bounds chunkBound = new(chunkDisplayPosition + (chunkDim / 2f), chunkDim);
+        var isIn = displayBound.Intersects(chunkBound);
+        return isIn;
     }
 
 

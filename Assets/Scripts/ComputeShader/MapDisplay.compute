@@ -20,16 +20,16 @@ int textureSize;
 //}
 
 bool IsUVInChunk(float x, float y) {
-    bool checkX = (x >= offset.x) && (x < (offset.x + 27 * indexToUV));
-    bool checkY = (y >= offset.y) && (y < (offset.y + 27 * indexToUV));
+    bool checkX = (x >= offset.x) && (x < (offset.x + (27 * indexToUV)));
+    bool checkY = (y >= offset.y) && (y < (offset.y + (27 * indexToUV)));
     return checkX && checkY;
 }
 
 [numthreads(32, 32, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
-    float XUV = id.x / (float)128;
-    float YUV = id.y / (float)128;
+    float XUV = id.x / (float)textureSize;
+    float YUV = id.y / (float)textureSize;
     if (IsUVInChunk(XUV, YUV)) {
         int tileX = (XUV - offset.x) / indexToUV;
         int tileY = (YUV - offset.y) / indexToUV;
